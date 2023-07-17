@@ -5,6 +5,7 @@
 # - add file explorer
 # - add logging on stderr
 # - add switches for all modes
+#       --clear screen in slideshow modes
 #       --help
 #       --minwidth, --minheight, --maxwidth, --maxheight (in view only with type dir)
 #       --auto-max (in view only with type dir)
@@ -14,6 +15,7 @@
 # - online menu in view/manage modes
 #       rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
 # - playback control keys
+#   next/previous
 #   fast forward
 #   pause/resume
 #   quit
@@ -67,9 +69,11 @@ conf() {
 }
 
 confirm() {
-    echo
-    read -r -p "${1:-Are you sure? (y/N)} " response
-    [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
+    [[ -n $(conf yes) ]] || {
+        echo
+        read -r -p "${1:-Are you sure? (y/N)} " response
+        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
+    }
 }
 
 clear_stdin() {
@@ -85,9 +89,9 @@ view_file() {
     iconv -f 437 -t utf8 "$1" | pv --quiet --rate-limit $(conf rate) &
 
     # give the user a chance to abort long scrolls
-    display_process=$!
-    trap "killer $display_process" INT
-    while kill -0 "$display_process" &> /dev/null; do :; done
+    viewer=$!
+    trap "killer $viewer" INT
+    while kill -0 "$viewer" &> /dev/null; do :; done
     trap - INT
     trap
 
@@ -213,7 +217,7 @@ go() {
     conf count=0
     conf pause=0
     conf include_linked=FALSE
-    conf confirm=FALSE
+    conf yes=FALSE
     conf quiet=FALSE
     conf random=FALSE
     conf automax=FALSE
