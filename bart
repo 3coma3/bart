@@ -68,14 +68,6 @@ conf() {
     return $FALSE
 }
 
-confirm() {
-    [[ -n $(conf yes) ]] || {
-        echo
-        read -r -p "${1:-Are you sure? (y/N)} " response
-        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
-    }
-}
-
 clear_stdin() {
     while read -e -t 0.1; do :; done
 }
@@ -85,7 +77,7 @@ killer() {
 }
 
 view_file() {
-    [[ -z $(conf quiet) ]] && echo -e "\nFile: $1"
+    (( $(conf quiet) )) || echo -e "\nFile: $1"
     iconv -f 437 -t utf8 "$1" | pv --quiet --rate-limit $(conf rate) &
 
     # give the user a chance to abort long scrolls
@@ -106,7 +98,7 @@ view() {
 
     local i r count
     for (( i=0, count=$(( $(conf count) )) ? $(( $(conf count) )) : -1; (i < total) && count; i++, count-- )); do
-        if [[ -z $(conf random) ]]; then
+        if (( $(conf random) )); then
             file="$(readlink -f "${files[$i]}")"
         else
             (( r=RANDOM % ${#files[@]} ))
@@ -119,6 +111,14 @@ view() {
 
         (( count-1 && (i+1 < total) )) && sleep $(( $(conf pause) ))
     done
+}
+
+confirm() {
+    (( $(conf yes) )) || {
+        echo
+        read -r -p "${1:-Are you sure? (y/N)} " response
+        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
+    }
 }
 
 manage() {
@@ -137,7 +137,7 @@ manage() {
 
             symlink_exists=0
             [[ -L "$(conf dst)/$symlink" ]] && {
-                [[ -z $(conf include_linked) ]] && continue
+                (( $(conf include_linked) )) && continue
                 symlink_exists=1
             }
         fi
