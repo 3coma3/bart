@@ -68,8 +68,42 @@ conf() {
     return $FALSE
 }
 
-clear_stdin() {
-    while read -e -t 0.1; do :; done
+declare -Ai RETCODES=(
+    # types
+    [TRUE]=$TRUE
+    [FALSE]=$FALSE
+    [T_UNDEF]=3
+    [T_BOOL]=4
+    [T_INT]=5
+    [T_STR]=6
+
+    # process result
+    [P_OK]=0
+    [P_NOOP]=0
+    [P_ERROR]=1
+    [P_ABORT]=11
+
+    # playback control
+    [PC_PLAY]=20
+    [PC_STOP]=21
+    [PC_PAUSE]=22
+    [PC_CONT]=23
+    [PC_PREV]=24
+    [PC_NEXT]=25
+    [PC_R_UP]=26
+    [PC_R_DOWN]=27
+    [PC_R_UP2]=28
+    [PC_R_DOWN2]=29
+    [PC_MENU]=30
+    [PC_HELP]=31
+)
+
+retcode() {
+    return ${RETCODES[$1]}
+}
+
+noop() {
+    retcode NOOP
 }
 
 killer() {
@@ -88,6 +122,7 @@ view_file() {
     trap
 
     echo -e '\033[0m'
+    retcode $playback
 }
 
 view() {
