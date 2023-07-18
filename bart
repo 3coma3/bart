@@ -1,25 +1,24 @@
 #!/bin/bash
 
 # TODO:
-# - add previous in navigation
-# - add file explorer
+# - restore rate after watching file
+# - improve view loops, and history and previous navigation in random or
+#   sequential modes
 # - add logging on stderr
+# - add --help
+# - mini help in viewer (press h)
+# - online help in view/manage modes (? option)
+# - online menu in view/manage modes (m option)
+#       rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
+#
+# - show detail line in viewer (press l)
+#
 # - add switches for all modes
-#       --clear screen in slideshow modes
-#       --help
-#       --minwidth, --minheight, --maxwidth, --maxheight (in view only with type dir)
-#       --auto-max (in view only with type dir)
+#       --minwidth, --minheight, --maxwidth, --maxheight (in view mode, only with type dir)
+#       --auto-max (in view mode, only with type dir)
 #       --auto-viewport
 #
-# - online help in view/manage modes
-# - online menu in view/manage modes
-#       rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
-# - playback control keys
-#   next/previous
-#   fast forward
-#   pause/resume
-#   quit
-#   rate +/- (for the current file)
+# - add file explorer
 
 shopt -s extglob
 
