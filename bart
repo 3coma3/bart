@@ -185,6 +185,18 @@ view_file() {
     retcode $playback
 }
 
+clear_stdin() {
+    read -t 0 && while read -e -t 0.1; do :; done
+}
+
+confirm() {
+    (( $(conf yes) )) || {
+        echo
+        read -r -p "${1:-Are you sure? (y/N)} " response
+        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
+    }
+}
+
 view() {
     local -a files
     readarray -t files< <(find "$(conf src)" -iname "*.ans")
@@ -207,14 +219,6 @@ view() {
 
         (( count-1 && (i+1 < total) )) && sleep $(( $(conf pause) ))
     done
-}
-
-confirm() {
-    (( $(conf yes) )) || {
-        echo
-        read -r -p "${1:-Are you sure? (y/N)} " response
-        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
-    }
 }
 
 manage() {
@@ -260,41 +264,39 @@ manage() {
             # ensure-valid-choice loop
             while read -n1 -p "${prompt}? " choice; do
                 case "$choice" in
-                    d)  confirm || continue 3
-                        rm -v "$file"
-                        ;&
+                    d) confirm || continue 3
+                       rm -v "$file"
+                       ;&
 
-                    l)  if (( symlink_exists )); then
-                            [[ "$choice" == "l" ]] && { confirm || continue 3 ;}
+                    l) if (( symlink_exists )); then
+                           [[ "$choice" == "l" ]] && { confirm || continue 3 ;}
+                           rm -v "$(conf dst)/$symlink"
 
-                            rm -v "$(conf dst)/$symlink"
+                           while [[ "$symlink_dir" != "$(conf dst)/$base" ]] && [[ -z "$(find "$symlink_dir" -mindepth 1)" ]]; do
+                               rmdir -v "$symlink_dir"
+                               symlink_dir="$(dirname "$symlink_dir")"
+                           done
+                       # check we're not cascading from d) before creation
+                       elif [[ "$choice" == "l" ]]; then
+                           [[ -d "$symlink_dir" ]] || mkdir -vp "$symlink_dir"
+                           ln -sv "$file" "$(conf dst)/$symlink"
+                       fi
 
-                            while [[ "$symlink_dir" != "$(conf dst)/$base" ]] && [[ -z "$(find "$symlink_dir" -mindepth 1)" ]]; do
-                                rmdir -v "$symlink_dir"
-                                symlink_dir="$(dirname "$symlink_dir")"
-                            done
-
-                        # check we're not cascading from d) before creation
-                        elif [[ "$choice" == "l" ]]; then
-                            [[ -d "$symlink_dir" ]] || mkdir -vp "$symlink_dir"
-                            ln -sv "$file" "$(conf dst)/$symlink"
-                        fi
-
-                        continue 3
-                        ;;
+                       continue 3
+                       ;;
 
                     n) continue 3
-                        ;;
+                       ;;
 
-                    v) continue 2
-                        ;;
+                    r) continue 2
+                       ;;
 
                     q) echo -e "Bye!\n"
                        return 0
-                        ;;
+                       ;;
 
                     *) continue
-                        ;;
+                       ;;
                 esac
             done
         done
