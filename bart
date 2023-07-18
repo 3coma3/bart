@@ -237,6 +237,8 @@ manage() {
     readarray -t files< <(find "$(conf get src)" -iname "*.ans")
 
     for file in "${files[@]}"; do
+        trap '' INT
+
         if [[ -n $(conf get dst) ]]; then
             file="$(readlink -f "$file")"
 
@@ -252,9 +254,7 @@ manage() {
 
         # view file loop
         while :; do
-            trap '' INT
             view_file "$file"
-            trap '' INT
 
             if [[ -n $(conf get dst) ]]; then
                 if (( symlink_exists )); then
@@ -308,6 +308,8 @@ manage() {
                 esac
             done
         done
+
+        trap - INT
     done
 }
 
