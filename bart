@@ -204,7 +204,7 @@ view() {
 
     local i r count
     for (( i=0, count=$(( $(conf count) )) ? $(( $(conf count) )) : -1; (i < total) && count; i++, count-- )); do
-        if (( $(conf random) )); then
+        if (( ! $(conf random) )); then
             file="$(readlink -f "${files[$i]}")"
         else
             (( r=RANDOM % ${#files[@]} ))
