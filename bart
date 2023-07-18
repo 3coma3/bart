@@ -180,6 +180,8 @@ view_file() {
     rm $pipe
 
     echo -e '\033[0m'
+    (( $(conf clear) )) && clear
+    (( $(conf reset) )) && reset
     retcode $playback
 }
 
@@ -363,6 +365,12 @@ go() {
                 ;;
             -@(l|-include-linked))
                 conf include_linked=TRUE
+                ;;
+            -@(c|-clear))
+                conf clear=TRUE
+                ;;
+            -@(s|-reset))
+                conf reset=TRUE
                 ;;
             -@(w|-minwidth))
                 conf min_width=$1
