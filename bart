@@ -28,17 +28,22 @@ export script_name script_dir script_title script_version sudo
 
 
 # "somewhat sane" true and false
-declare -i FALSE=0
+declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
 
 declare -A CONFIG
 conf() {
-    [[ "$1" == unset ]] && {
-        unset "CONFIG[$2]"
-        return $TRUE
-    }
+    local k v test
+    local -i get
 
-    local k="${1%%=*}" v="${1#*=}"
+    case $1 in
+        unset) unset "CONFIG[$2]"
+               return $TRUE
+               ;;
+          get) k="$2" get=$TRUE         ;;
+       !(*=*)) k="$1"                   ;;
+            *) k="${1%%=*}" v="${1#*=}" ;;
+    esac
 
     if [[ "$1" =~ .+=.+ ]]; then
         case "$v" in
@@ -48,18 +53,21 @@ conf() {
         esac
         return $TRUE
     else
-        [[ -v CONFIG[__bool__$k] ]] && {
-            echo ${CONFIG[__bool__$k]}
-            return ${CONFIG[__bool__$k]}
+        test="__bool__$k"
+        [[ -v CONFIG[$test] ]] && {
+            [[ -v get ]] && echo ${CONFIG[$test]}
+            return ${CONFIG[$test]}
         }
 
-        [[ -v CONFIG[__int__$k] ]] && {
-            echo ${CONFIG[__int__$k]}
+        test="__int__$k"
+        [[ -v CONFIG[$test] ]] && {
+            [[ -v get ]] && echo ${CONFIG[$test]}
             return $TRUE
         }
 
-        [[ -v CONFIG[__str__$k] ]] && {
-            echo ${CONFIG[__str__$k]}
+        test="__str__$k"
+        [[ -v CONFIG[$test] ]] && {
+            [[ -v get ]] && echo ${CONFIG[$test]}
             return $TRUE
         }
     fi
@@ -111,13 +119,14 @@ log() {
 
 view_file() {
     local control playback reader writer pipe=playback_control
+    local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
 
-    (( $(conf quiet) )) || echo -e "\nFile: $1"
+    conf quiet || echo -e "\nFile: $1"
 
     mkfifo $pipe
     iconv -f 437 -t utf8 "$1" > $pipe &
     writer=$!
-    pv --quiet -C -B32 --rate-limit $(conf rate) < $pipe &
+    pv --quiet -C -B32 --rate-limit $(conf get rate) < $pipe &
     reader=$!
 
     trap noop INT
@@ -131,7 +140,7 @@ view_file() {
                     pv -R $reader --rate-limit 1
                 elif [[ "$playback" == "PC_PAUSE" ]]; then
                     playback=PC_PLAY
-                    pv -R $reader --rate-limit $(conf rate)
+                    pv -R $reader --rate-limit $(conf get rate)
                 fi
 
                 log "playback $playback"
@@ -157,17 +166,17 @@ view_file() {
                log "playback $playback"
                break
                ;;
-            u) conf rate=$(( $(conf rate) + $(conf rate_factor_small) ))
-               pv -R $reader --rate-limit $(conf rate)
+            u) conf rate=$(( $(conf get rate) + rf_small ))
+               pv -R $reader --rate-limit $(conf get rate)
                ;;
-            d) conf rate=$(( $(conf rate) - $(conf rate_factor_small) < 0 ? 1 : $(conf rate) - $(conf rate_factor_small )))
-               pv -R $reader --rate-limit $(conf rate)
+            d) conf rate=$(( $(conf get rate) - rf_small < 0 ? 1 : $(conf get rate) - rf_small ))
+               pv -R $reader --rate-limit $(conf get rate)
                ;;
-            U) conf rate=$(( $(conf rate) + $(conf rate_factor_big) ))
-               pv -R $reader --rate-limit $(conf rate)
+            U) conf rate=$(( $(conf get rate) + rf_big ))
+               pv -R $reader --rate-limit $(conf get rate)
                ;;
-            D) conf rate=$(( $(conf rate) - $(conf rate_factor_big) < 0 ? 1 : $(conf rate) - $(conf rate_factor_big )))
-               pv -R $reader --rate-limit $(conf rate)
+            D) conf rate=$(( $(conf get rate) - rf_big < 0 ? 1 : $(conf get rate) - rf_big ))
+               pv -R $reader --rate-limit $(conf get rate)
                ;;
             *) continue
                ;;
@@ -179,8 +188,8 @@ view_file() {
     rm $pipe
 
     echo -e '\033[0m'
-    (( $(conf clear) )) && clear
-    (( $(conf reset) )) && reset
+    conf clear && clear
+    conf reset && reset
     retcode $playback
 }
 
@@ -189,7 +198,7 @@ clear_stdin() {
 }
 
 confirm() {
-    (( $(conf yes) )) || {
+    conf yes || {
         echo
         read -r -p "${1:-Are you sure? (y/N)} " response
         [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
@@ -198,13 +207,13 @@ confirm() {
 
 view() {
     local -a files
-    readarray -t files< <(find "$(conf src)" -iname "*.ans")
+    readarray -t files< <(find "$(conf get src)" -iname "*.ans")
 
     local total=${#files[@]}
 
     local i r count
-    for (( i=0, count=$(( $(conf count) )) ? $(( $(conf count) )) : -1; (i < total) && count; i++, count-- )); do
-        if (( ! $(conf random) )); then
+    for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
+        if conf random; then
             file="$(readlink -f "${files[$i]}")"
         else
             (( r=RANDOM % ${#files[@]} ))
@@ -216,7 +225,7 @@ view() {
         view_file "$file"
         (( $? == ${RETCODES[PC_STOP]} )) && break
 
-        (( count-1 && (i+1 < total) )) && sleep $(( $(conf pause) ))
+        (( count-1 && (i+1 < total) )) && sleep $(( $(conf get pause) ))
     done
 }
 
@@ -225,18 +234,18 @@ manage() {
     local file symlink symlink_dir symlink_exists prompt choice
 
     local -a files
-    readarray -t files< <(find "$(conf src)" -iname "*.ans")
+    readarray -t files< <(find "$(conf get src)" -iname "*.ans")
 
     for file in "${files[@]}"; do
-        if [[ -n $(conf dst) ]]; then
+        if [[ -n $(conf get dst) ]]; then
             file="$(readlink -f "$file")"
 
             symlink="$base${file##*$base}"
-            symlink_dir="$(dirname "$(conf dst)/$symlink")"
+            symlink_dir="$(dirname "$(conf get dst)/$symlink")"
 
             symlink_exists=0
-            [[ -L "$(conf dst)/$symlink" ]] && {
-                (( $(conf include_linked) )) && continue
+            [[ -L "$(conf get dst)/$symlink" ]] && {
+                conf include_linked && continue
                 symlink_exists=1
             }
         fi
@@ -247,7 +256,7 @@ manage() {
             view_file "$file"
             trap '' INT
 
-            if [[ -n $(conf dst) ]]; then
+            if [[ -n $(conf get dst) ]]; then
                 if (( symlink_exists )); then
                     echo "This file is already linked."
                     prompt='unlink/delete/prev/replay/next/quit (l/d/p/r/n/q)'
@@ -269,16 +278,16 @@ manage() {
 
                     l) if (( symlink_exists )); then
                            [[ "$choice" == "l" ]] && { confirm || continue 3 ;}
-                           rm -v "$(conf dst)/$symlink"
+                           rm -v "$(conf get dst)/$symlink"
 
-                           while [[ "$symlink_dir" != "$(conf dst)/$base" ]] && [[ -z "$(find "$symlink_dir" -mindepth 1)" ]]; do
+                           while [[ "$symlink_dir" != "$(conf get dst)/$base" ]] && [[ -z "$(find "$symlink_dir" -mindepth 1)" ]]; do
                                rmdir -v "$symlink_dir"
                                symlink_dir="$(dirname "$symlink_dir")"
                            done
                        # check we're not cascading from d) before creation
                        elif [[ "$choice" == "l" ]]; then
                            [[ -d "$symlink_dir" ]] || mkdir -vp "$symlink_dir"
-                           ln -sv "$file" "$(conf dst)/$symlink"
+                           ln -sv "$file" "$(conf get dst)/$symlink"
                        fi
 
                        continue 3
