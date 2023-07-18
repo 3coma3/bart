@@ -114,14 +114,70 @@ view_file() {
     local control playback reader writer pipe=playback_control
 
     (( $(conf quiet) )) || echo -e "\nFile: $1"
-    iconv -f 437 -t utf8 "$1" | pv --quiet --rate-limit $(conf rate) &
 
-    # give the user a chance to abort long scrolls
-    viewer=$!
-    trap "killer $viewer" INT
-    while kill -0 "$viewer" &> /dev/null; do :; done
+    mkfifo $pipe
+    iconv -f 437 -t utf8 "$1" > $pipe &
+    writer=$!
+    pv --quiet -C -B32 --rate-limit $(conf rate) < $pipe &
+    reader=$!
+
+    trap noop INT
+    playback=PC_PLAY
+    while kill -0 "$reader" &> /dev/null; do
+        read -t 0.1 -s -N 1 -d '' control
+        clear_stdin
+        case $control in
+            c) if [[ "$playback" == "PC_PLAY" ]]; then
+                    playback=PC_PAUSE
+                    pv -R $reader --rate-limit 1
+                elif [[ "$playback" == "PC_PAUSE" ]]; then
+                    playback=PC_PLAY
+                    pv -R $reader --rate-limit $(conf rate)
+                fi
+
+                log "playback $playback"
+                ;;
+            h) playback=PC_HELP
+               log "playback $playback"
+               break
+               ;;
+            m) playback=PC_MENU
+               log "playback $playback"
+               break
+               ;;
+            n) playback=PC_NEXT
+               log "playback $playback"
+               break
+               ;;
+            p) playback=PC_PREV
+               log "playback $playback"
+               break
+               ;;
+            s) playback=PC_STOP
+               [[ "$playback" == PC_PLAY ]] && playback=PC_STOP
+               log "playback $playback"
+               break
+               ;;
+            u) conf rate=$(( $(conf rate) + $(conf rate_factor_small) ))
+               pv -R $reader --rate-limit $(conf rate)
+               ;;
+            d) conf rate=$(( $(conf rate) - $(conf rate_factor_small) < 0 ? 1 : $(conf rate) - $(conf rate_factor_small )))
+               pv -R $reader --rate-limit $(conf rate)
+               ;;
+            U) conf rate=$(( $(conf rate) + $(conf rate_factor_big) ))
+               pv -R $reader --rate-limit $(conf rate)
+               ;;
+            D) conf rate=$(( $(conf rate) - $(conf rate_factor_big) < 0 ? 1 : $(conf rate) - $(conf rate_factor_big )))
+               pv -R $reader --rate-limit $(conf rate)
+               ;;
+            *) continue
+               ;;
+        esac
+    done
+
     trap - INT
-    trap
+    kill $writer $reader &> /dev/null
+    rm $pipe
 
     echo -e '\033[0m'
     retcode $playback
@@ -145,6 +201,7 @@ view() {
         fi
 
         view_file "$file"
+        (( $? == ${RETCODES[PC_STOP]} )) && break
 
         (( count-1 && (i+1 < total) )) && sleep $(( $(conf pause) ))
     done
@@ -188,12 +245,12 @@ manage() {
             if [[ -n $(conf dst) ]]; then
                 if (( symlink_exists )); then
                     echo "This file is already linked."
-                    prompt='unlink/delete/view again/next/quit (l/d/v/n/q)'
+                    prompt='unlink/delete/prev/replay/next/quit (l/d/p/r/n/q)'
                 else
-                    prompt='link/delete/view again/next/quit (l/d/v/n/q)'
+                    prompt='link/delete/prev/replay/next/quit (l/d/p/r/n/q)'
                 fi
             else
-                prompt='delete/view again/next/quit (d/v/n/q)'
+                prompt='delete/prev/replay/next/quit (d/p/r/n/q)'
             fi
 
             clear_stdin
@@ -250,7 +307,9 @@ go() {
     [[ -f "$(conf script_dir)/VERSION" ]] && conf script_version=$(cat "$script_dir/VERSION")
     conf src=""
     conf dst=""
-    conf rate=7000
+    conf rate=5000
+    conf rate_factor_small=30
+    conf rate_factor_big=150
     conf count=0
     conf pause=0
     conf include_linked=FALSE
