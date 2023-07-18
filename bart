@@ -81,6 +81,7 @@ declare -Ai RETCODES=(
     [T_STR]=6
 
     # process result
+    [P_SUCESS]=$TRUE
     [P_NOOP]=10
     [P_ERROR]=11
     [P_ABORT]=11
@@ -138,7 +139,6 @@ playback_control() {
         [D]=PC_R_DOWN2
     )
 
-
     local key controls="${!control_mappings[@]}"
 
     IFS=''
@@ -182,6 +182,7 @@ view_file() {
         unset control
         read -t0.5 control
         log "read control $control"
+
         case $control in
             PC_PLAY)
                 if [[ "$playback" == "PC_PLAY" ]]; then
@@ -237,16 +238,13 @@ view() {
     local i count
     for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
 
-        if [[ "$playback" == "PC_PAUSE" ]]; then (( i--, count++ ))
-        else
+        if [[ "$playback" =~ ^PC_(PLAY|NEXT|PREV)$ ]]; then
             view_file "$(readlink -f "${playlist[$i]}")"
             playback=$(retcode key $?)
         fi
 
-        log "list playback is $playback"
-
-        (( (playback == PC_PLAY || playback == PC_PAUSE)
-        && (count - 1 && (i + 1 < total)) )) && {
+        # next/prev don't pause since they are supposed to "jump" the playlist
+        [[ "$playback" == 'PC_PLAY' || "$playback" == 'PC_PAUSE' ]] && (( count - 1 && (i + 1 < total) )) && {
             log "enter pause"
 
             ( sleep $(( $(conf get pause) )) )&
@@ -256,6 +254,7 @@ view() {
                 unset control
                 read -t0.5 control
                 log "playback control (while pausing) $control"
+
                 case $control in
                     PC_PLAY)
                         if [[ "$playback" == "PC_PLAY" ]]; then
@@ -283,10 +282,13 @@ view() {
 
         log "list playback is $playback"
 
-        (( playback == PC_PAUSE )) && continue
-        (( playback == PC_STOP )) && break
-        (( playback == PC_NEXT )) && (( count++ ))
-        (( playback == PC_PREV )) && (( i -= (i ? 2 : 1), count++ ))
+        [[ "$playback" == "PC_STOP" ]] && break
+        [[ "$playback" == "PC_PAUSE" ]] && {
+            (( i--, count++ ))  # freeze arrow and counter
+            continue
+        }
+        [[ "$playback" == "PC_NEXT" ]] && (( count++ ))                     # freeze counter
+        [[ "$playback" == "PC_PREV" ]] && (( i -= (i ? 2 : 1), count++ ))   # move arrow, freeze counter
 
         conf clear && clear
         conf reset && reset
@@ -328,6 +330,7 @@ manage() {
         # view file loop
         while :; do
             view_file "$file"
+            clear_stdin
 
             if [[ -n $(conf get dst) ]]; then
                 if (( symlink_exists )); then
@@ -339,8 +342,6 @@ manage() {
             else
                 prompt='delete/prev/replay/next/quit (d/p/r/n/q)'
             fi
-
-            clear_stdin
 
             # ensure-valid-choice loop
             while read -n1 -p "${prompt}? " choice; do
@@ -377,8 +378,8 @@ manage() {
                     r) continue 2
                        ;;
 
-                    q) echo -e "Bye!\n"
-                       return 0
+                    q) echo -e 'Bye!\n'
+                       return ${RETCODES[P_SUCESS]}
                        ;;
 
                     *) continue
