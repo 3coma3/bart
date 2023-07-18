@@ -484,6 +484,7 @@ go() {
     done
 
     $command
+    stty echo
 }
 
 go $@
