@@ -30,7 +30,6 @@ declare -i TRUE=$(( !FALSE ))
 
 declare -A CONFIG
 
-
 conf() {
     local k v test
     local -i get
@@ -39,37 +38,28 @@ conf() {
         unset) unset "CONFIG[$2]"
                return $TRUE
                ;;
-          get) k="$2" get=$TRUE         ;;
-       !(*=*)) k="$1"                   ;;
-            *) k="${1%%=*}" v="${1#*=}" ;;
+          get) get=$TRUE k="$2"         ;;
+       @(*=*)) k="${1%%=*}" v="${1#*=}" ;;
+            *) k="$1"                   ;;
     esac
 
-    if [[ "$1" =~ .+=.+ ]]; then
+    [[ -v v ]] && {
         case "$v" in
             TRUE|FALSE) CONFIG[__bool__$k]=${!v}    ;;
             ''|*[!0-9]*) CONFIG[__str__$k]="$v"     ;;
                       *) CONFIG[__int__$k]=$v       ;;
         esac
         return $TRUE
-    else
-        test="__bool__$k"
-        [[ -v CONFIG[$test] ]] && {
-            [[ -v get ]] && echo ${CONFIG[$test]}
-            return ${CONFIG[$test]}
-        }
+    }
 
-        test="__int__$k"
+    for t in bool int str; do
+        test="__${t}__${k}"
         [[ -v CONFIG[$test] ]] && {
             [[ -v get ]] && echo ${CONFIG[$test]}
+            [[ $t == bool ]] && return ${CONFIG[$test]}
             return $TRUE
         }
-
-        test="__str__$k"
-        [[ -v CONFIG[$test] ]] && {
-            [[ -v get ]] && echo ${CONFIG[$test]}
-            return $TRUE
-        }
-    fi
+    done
 
     return $FALSE
 }
@@ -130,7 +120,7 @@ clear_stdin() {
 
 playback_control() {
     local -A control_mappings=(
-        [_]=PC_PLAY
+        [_]=PC_PLAY     # this is a space
         [h]=PC_HELP
         [m]=PC_MENU
         [n]=PC_NEXT
@@ -172,6 +162,7 @@ view_file() {
     local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
 
     conf quiet || echo -e "\nFile: $1"
+    log "viewing file: $1"
 
     mkfifo $pipe
     iconv -f 437 -t utf8 "$1" > $pipe &
@@ -180,6 +171,7 @@ view_file() {
     reader=$!
 
     trap noop INT
+
     playback=PC_PLAY
     while kill -0 "$reader" &> /dev/null; do
         unset control
@@ -188,14 +180,13 @@ view_file() {
 
         case $control in
             PC_PLAY)
-                if [[ "$playback" == "PC_PLAY" ]]; then
+                if [[ $playback == PC_PLAY ]]; then
                     playback=PC_PAUSE
                     pv -R $reader --rate-limit 1
-                elif [[ "$playback" == "PC_PAUSE" ]]; then
+                elif [[ $playback == PC_PAUSE ]]; then
                     playback=PC_PLAY
                     pv -R $reader --rate-limit $(conf get rate)
                 fi
-
                 log "playback changed to $playback"
                 ;;
             PC_R_@(UP|DOWN)?(2))
@@ -203,20 +194,19 @@ view_file() {
                 pv -R $reader --rate-limit $(conf get rate)
                 ;;
             PC_@(NEXT|PREV|HELP|MENU))
-               playback=$control
-               log "playback changed to $playback"
-               break
-               ;;
-            PC_STOP) [[ "$playback" == PC_PLAY ]] && playback=PC_STOP
-               log "playback changed to $playback"
-               break
-               ;;
-            *) continue
-               ;;
+                playback=$control
+                log "playback changed to $playback"
+                break
+                ;;
+            PC_STOP) [[ $playback == PC_PLAY ]] && playback=PC_STOP
+                log "playback changed to $playback"
+                break
+                ;;
         esac
     done< <(playback_control)
 
     trap - INT
+
     kill $writer $reader &> /dev/null
     rm $pipe
 
@@ -234,49 +224,45 @@ file_list() {
 }
 
 view() {
-    local -a playlist playback=PC_PLAY control sleeper
+    local playback=PC_PLAY total control sleeper
+
+    local -a playlist
     readarray -t playlist< <(file_list)
-    local total=${#playlist[@]}
+    total=${#playlist[@]}
 
     local i count
     for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
 
-        if [[ "$playback" =~ ^PC_(PLAY|NEXT|PREV)$ ]]; then
+        if [[ $playback =~ ^PC_(PLAY|NEXT|PREV)$ ]]; then
             view_file "$(readlink -f "${playlist[$i]}")"
             playback=$(retcode key $?)
         fi
 
         # next/prev don't pause since they are supposed to "jump" the playlist
-        [[ "$playback" == 'PC_PLAY' || "$playback" == 'PC_PAUSE' ]] && (( count - 1 && (i + 1 < total) )) && {
+        [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] && (( count - 1 && (i + 1 < total) )) && {
             log "enter pause"
 
-            ( sleep $(( $(conf get pause) )) )&
-            sleeper=$!
+            ( sleep $(( $(conf get pause) )) ) & sleeper=$!
 
-            while kill -0 "$sleeper" &> /dev/null; do
+            while kill -0 $sleeper &> /dev/null; do
                 unset control
                 read -t0.5 control
                 log "playback control (while pausing) $control"
 
                 case $control in
                     PC_PLAY)
-                        if [[ "$playback" == "PC_PLAY" ]]; then
-                            playback=PC_PAUSE
-                        elif [[ "$playback" == "PC_PAUSE" ]]; then
-                            playback=PC_PLAY
+                        if [[ $playback == PC_PLAY ]]; then playback=PC_PAUSE
+                        elif [[ $playback == PC_PAUSE ]]; then playback=PC_PLAY
                         fi
                         break
                         ;;
-                    PC_R_@(UP|DOWN)?(2)) change_rate $control ;;
                     PC_@(STOP|NEXT|PREV))
                         playback=$control
                         break
                         ;;
-                    PC_@(HELP|MENU))
-                        break
-                        ;;
-                    *) continue
-                        ;;
+                    PC_R_@(UP|DOWN)?(2)) change_rate $control ;;
+                    PC_@(HELP|MENU)) break ;;
+                    *) continue ;;
                 esac
             done< <(playback_control)
 
@@ -285,13 +271,15 @@ view() {
 
         log "list playback is $playback"
 
-        [[ "$playback" == "PC_STOP" ]] && break
-        [[ "$playback" == "PC_PAUSE" ]] && {
-            (( i--, count++ ))  # freeze arrow and counter
-            continue
-        }
-        [[ "$playback" == "PC_NEXT" ]] && (( count++ ))                     # freeze counter
-        [[ "$playback" == "PC_PREV" ]] && (( i -= (i ? 2 : 1), count++ ))   # move arrow, freeze counter
+        case $playback in
+            PC_STOP) break ;;
+            PC_PAUSE)
+                (( i--, count++ ))                      # freeze arrow and counter
+                continue
+                ;;
+            PC_NEXT) (( count++ ))                   ;; # freeze counter
+            PC_PREV) (( i -= (i ? 2 : 1), count++ )) ;; # move arrow, freeze counter
+        esac
 
         conf clear && clear
         conf reset && reset
@@ -354,7 +342,7 @@ manage() {
                        ;&
 
                     l) if (( symlink_exists )); then
-                           [[ "$choice" == "l" ]] && { confirm || continue 3 ;}
+                           [[ "$choice" == l ]] && { confirm || continue 3 ;}
                            rm -v "$(conf get dst)/$symlink"
 
                            while [[ "$symlink_dir" != "$(conf get dst)/$base" ]] && [[ -z "$(find "$symlink_dir" -mindepth 1)" ]]; do
@@ -362,7 +350,7 @@ manage() {
                                symlink_dir="$(dirname "$symlink_dir")"
                            done
                        # check we're not cascading from d) before creation
-                       elif [[ "$choice" == "l" ]]; then
+                       elif [[ "$choice" == l ]]; then
                            [[ -d "$symlink_dir" ]] || mkdir -vp "$symlink_dir"
                            ln -sv "$file" "$(conf get dst)/$symlink"
                        fi
@@ -381,11 +369,8 @@ manage() {
                     r) continue 2
                        ;;
 
-                    q) echo -e 'Bye!\n'
+                    q) echo -e "Bye!\n"
                        return ${RETCODES[P_SUCESS]}
-                       ;;
-
-                    *) continue
                        ;;
                 esac
             done
@@ -397,12 +382,12 @@ manage() {
 
 go() {
     # config defaults
-    conf script_name="$0"
+    conf script_name="$(basename "$0")"
     conf script_dir="$(dirname $(readlink -f "$0"))"
-    conf script_title="bart"
+    conf script_title=bart
     [[ -f "$(conf script_dir)/VERSION" ]] && conf script_version=$(cat "$script_dir/VERSION")
-    conf src=""
-    conf dst=""
+    conf src=''
+    conf dst=''
     conf rate=5000
     conf rate_factor_small=30
     conf rate_factor_big=150
