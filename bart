@@ -188,8 +188,6 @@ view_file() {
     rm $pipe
 
     echo -e '\033[0m'
-    conf clear && clear
-    conf reset && reset
     retcode $playback
 }
 
@@ -226,6 +224,8 @@ view() {
         (( $? == ${RETCODES[PC_STOP]} )) && break
 
         (( count-1 && (i+1 < total) )) && sleep $(( $(conf get pause) ))
+        conf clear && clear
+        conf reset && reset
     done
 }
 
@@ -376,10 +376,10 @@ go() {
             -@(l|-include-linked))
                 conf include_linked=TRUE
                 ;;
-            -@(c|-clear))
+            -@(C|-clear))
                 conf clear=TRUE
                 ;;
-            -@(s|-reset))
+            -@(R|-reset))
                 conf reset=TRUE
                 ;;
             -@(w|-minwidth))
