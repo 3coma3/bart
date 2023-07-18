@@ -106,11 +106,13 @@ noop() {
     retcode NOOP
 }
 
-killer() {
-    kill $1
+log() {
+    [[ -v BART_LOG ]] && echo $@ >> "$BART_LOG"
 }
 
 view_file() {
+    local control playback reader writer pipe=playback_control
+
     (( $(conf quiet) )) || echo -e "\nFile: $1"
     iconv -f 437 -t utf8 "$1" | pv --quiet --rate-limit $(conf rate) &
 
