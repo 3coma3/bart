@@ -140,7 +140,7 @@ playback_control() {
         clear_stdin
 
         key=${key// /_}
-        if [[ "${key}" =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
+        if [[ $key =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
         else echo NOOP
         fi
     done
@@ -149,11 +149,12 @@ playback_control() {
 change_rate() {
     local rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
-        PC_R_UP) conf rate="$(( rate + small ))" ;;
-        PC_R_DOWN) conf rate=$(( rate - small < 0 ? 1 : rate - small )) ;;
-        PC_R_UP2) conf rate=$(( rate + big )) ;;
-        PC_R_DOWN2) conf rate=$(( rate - big < 0 ? 1 : rate - big )) ;;
+           PC_R_UP) (( rate += small )) ;;
+          PC_R_UP2) (( rate += big ))   ;;
+         PC_R_DOWN) (( rate -= small )) ;;
+        PC_R_DOWN2) (( rate -= big ))   ;;
     esac
+    conf rate=$(( rate < 1 ? 1 : rate ))
     log "updated rate to $(conf get rate)"
 }
 
@@ -165,14 +166,14 @@ new_pipe() {
 }
 
 view_file() {
-    local playback control reader writer pipe="$(new_pipe)"
+    local file="${1:-$(conf get src)}" playback control reader writer pipe="$(new_pipe)"
     local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
 
-    conf quiet || echo -e "\nFile: $1"
-    log "viewing file: $1"
+    conf quiet || echo -e "\nFile: $file"
+    log "viewing file: $file"
 
-    iconv -f 437 -t utf8 "$1" > $pipe & writer=$!
-    pv --quiet -C -B32 --rate-limit $(conf get rate) < $pipe & reader=$!
+    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 > "$pipe" ;} & writer=$!
+    pv --quiet -C -B32 --rate-limit $(conf get rate) < "$pipe" & reader=$!
 
     trap noop INT
 
@@ -211,8 +212,8 @@ view_file() {
 
     trap - INT
 
-    kill $writer $reader &> /dev/null
     rm $pipe
+    kill $writer $reader &> /dev/null
 
     echo -e '\033[0m'
     retcode $playback
@@ -242,7 +243,7 @@ view() {
             playback=$(retcode key $?)
         fi
 
-        # next/prev don't pause since they are supposed to "jump" the playlist
+        # next/prev skip pause since they jump around the playlist
         [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] && (( count - 1 && (i + 1 < total) )) && {
             log "enter pause"
 
@@ -412,12 +413,14 @@ go() {
     local command=$1; shift
 
     case $command in
-        view)
-            conf src="$1"; shift
+        view?(_file))
+            conf src="$1"
+            shift
             ;;
 
         manage)
-            conf src="$1"; shift
+            conf src="$1"
+            shift
             [[ ! "$1" =~ ^--.+ ]] && { conf dst="$1"; shift; }
             ;;
     esac
