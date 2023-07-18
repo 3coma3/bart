@@ -157,18 +157,22 @@ change_rate() {
     log "updated rate to $(conf get rate)"
 }
 
+new_pipe() {
+    local pipe="$(mktemp -tu $(conf get script_name)-playback.$(printf 'X%.0s' {1..10}))"
+    mkfifo "$pipe"
+    log "created pipe by request of ${FUNCNAME[1]}: $pipe"
+    echo "$pipe"
+}
+
 view_file() {
-    local playback control reader writer pipe=ansi_playback
+    local playback control reader writer pipe="$(new_pipe)"
     local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
 
     conf quiet || echo -e "\nFile: $1"
     log "viewing file: $1"
 
-    mkfifo $pipe
-    iconv -f 437 -t utf8 "$1" > $pipe &
-    writer=$!
-    pv --quiet -C -B32 --rate-limit $(conf get rate) < $pipe &
-    reader=$!
+    iconv -f 437 -t utf8 "$1" > $pipe & writer=$!
+    pv --quiet -C -B32 --rate-limit $(conf get rate) < $pipe & reader=$!
 
     trap noop INT
 
