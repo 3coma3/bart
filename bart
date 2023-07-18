@@ -351,8 +351,8 @@ go() {
             ;;
     esac
 
-    while token="$1"; do
-        shift
+    while (( $# )); do
+        token="$1" && shift
         case "$token" in
             -@(q|-quiet))
                 conf quiet=TRUE
@@ -405,8 +405,6 @@ go() {
                 ;;
             -@(V|-auto-viewport))
                 conf auto_viewport=TRUE
-                ;;
-            '') break
                 ;;
         esac
     done
