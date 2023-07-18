@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # TODO:
-# - restore rate after watching file
-# - improve view loops, and history and previous navigation in random or
+# - improve view loops, add history and previous navigation in random or
 #   sequential modes
-# - add logging on stderr
+# - restore rate after watching file
 # - add --help
 # - mini help in viewer (press h)
 # - online help in view/manage modes (? option)
@@ -32,6 +31,7 @@ declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
 
 declare -A CONFIG
+
 conf() {
     local k v test
     local -i get
@@ -47,9 +47,9 @@ conf() {
 
     if [[ "$1" =~ .+=.+ ]]; then
         case "$v" in
-            TRUE|FALSE) (( ${!v} )) && CONFIG[__bool__$k]=${!v}    ;;
-            ''|*[!0-9]*) [[ "$v" != '' ]] && CONFIG[__str__$k]="$v"    ;;
-                      *) (( v )) && CONFIG[__int__$k]=$v            ;;
+            TRUE|FALSE) CONFIG[__bool__$k]=${!v}    ;;
+            ''|*[!0-9]*) CONFIG[__str__$k]="$v"     ;;
+                      *) CONFIG[__int__$k]=$v       ;;
         esac
         return $TRUE
     else
