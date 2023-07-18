@@ -307,7 +307,7 @@ go() {
     # config defaults
     conf script_name="$0"
     conf script_dir="$(dirname $(readlink -f "$0"))"
-    conf script_title="btrfs-backup"
+    conf script_title="bart"
     [[ -f "$(conf script_dir)/VERSION" ]] && conf script_version=$(cat "$script_dir/VERSION")
     conf src=""
     conf dst=""
