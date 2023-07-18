@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # TODO:
-# - improve view loops, add history and previous navigation in random or
-#   sequential modes
+# - previous an navigation controls for manage mode
 # - restore rate after watching file
 # - add --help
 # - mini help in viewer (press h)
@@ -22,15 +21,12 @@
 shopt -s extglob
 
 
-# basic info set at init(), not considered configuration
-export script_name script_dir script_title script_version sudo
-
-
 # "somewhat sane" true and false
 declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
 
 declare -A CONFIG
+
 
 conf() {
     local k v test
@@ -117,8 +113,52 @@ log() {
     [[ -v BART_LOG ]] && echo "${FUNCNAME[1]}: $@" >> "$BART_LOG"
 }
 
+clear_stdin() {
+    read -t 0 && while read -e -t 0.1; do :; done
+}
+
+playback_control() {
+    local -A control_mappings=(
+        [_]=PC_PLAY
+        [h]=PC_HELP
+        [m]=PC_MENU
+        [n]=PC_NEXT
+        [p]=PC_PREV
+        [q]=PC_STOP
+        [u]=PC_R_UP
+        [d]=PC_R_DOWN
+        [U]=PC_R_UP2
+        [D]=PC_R_DOWN2
+    )
+
+
+    local key controls="${!control_mappings[@]}"
+
+    IFS=''
+    while :; do
+        read -t 0.1 -s -N 1 -d '' key
+        clear_stdin
+
+        key=${key// /_}
+        if [[ "${key}" =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
+        else echo NOOP
+        fi
+    done
+}
+
+change_rate() {
+    local rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    case $1 in
+        PC_R_UP) conf rate="$(( rate + small ))" ;;
+        PC_R_DOWN) conf rate=$(( rate - small < 0 ? 1 : rate - small )) ;;
+        PC_R_UP2) conf rate=$(( rate + big )) ;;
+        PC_R_DOWN2) conf rate=$(( rate - big < 0 ? 1 : rate - big )) ;;
+    esac
+    log "updated rate to $(conf get rate)"
+}
+
 view_file() {
-    local control playback reader writer pipe=playback_control
+    local playback control reader writer pipe=ansi_playback
     local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
 
     conf quiet || echo -e "\nFile: $1"
@@ -132,10 +172,12 @@ view_file() {
     trap noop INT
     playback=PC_PLAY
     while kill -0 "$reader" &> /dev/null; do
-        read -t 0.1 -s -N 1 -d '' control
-        clear_stdin
+        unset control
+        read -t0.5 control
+        log "read control $control"
         case $control in
-            c) if [[ "$playback" == "PC_PLAY" ]]; then
+            PC_PLAY)
+                if [[ "$playback" == "PC_PLAY" ]]; then
                     playback=PC_PAUSE
                     pv -R $reader --rate-limit 1
                 elif [[ "$playback" == "PC_PAUSE" ]]; then
@@ -143,45 +185,25 @@ view_file() {
                     pv -R $reader --rate-limit $(conf get rate)
                 fi
 
-                log "playback $playback"
+                log "playback changed to $playback"
                 ;;
-            h) playback=PC_HELP
-               log "playback $playback"
+            PC_R_@(UP|DOWN)?(2))
+                change_rate $control
+                pv -R $reader --rate-limit $(conf get rate)
+                ;;
+            PC_@(NEXT|PREV|HELP|MENU))
+               playback=$control
+               log "playback changed to $playback"
                break
                ;;
-            m) playback=PC_MENU
-               log "playback $playback"
+            PC_STOP) [[ "$playback" == PC_PLAY ]] && playback=PC_STOP
+               log "playback changed to $playback"
                break
-               ;;
-            n) playback=PC_NEXT
-               log "playback $playback"
-               break
-               ;;
-            p) playback=PC_PREV
-               log "playback $playback"
-               break
-               ;;
-            s) playback=PC_STOP
-               [[ "$playback" == PC_PLAY ]] && playback=PC_STOP
-               log "playback $playback"
-               break
-               ;;
-            u) conf rate=$(( $(conf get rate) + rf_small ))
-               pv -R $reader --rate-limit $(conf get rate)
-               ;;
-            d) conf rate=$(( $(conf get rate) - rf_small < 0 ? 1 : $(conf get rate) - rf_small ))
-               pv -R $reader --rate-limit $(conf get rate)
-               ;;
-            U) conf rate=$(( $(conf get rate) + rf_big ))
-               pv -R $reader --rate-limit $(conf get rate)
-               ;;
-            D) conf rate=$(( $(conf get rate) - rf_big < 0 ? 1 : $(conf get rate) - rf_big ))
-               pv -R $reader --rate-limit $(conf get rate)
                ;;
             *) continue
                ;;
         esac
-    done
+    done< <(playback_control)
 
     trap - INT
     kill $writer $reader &> /dev/null
@@ -191,8 +213,77 @@ view_file() {
     retcode $playback
 }
 
-clear_stdin() {
-    read -t 0 && while read -e -t 0.1; do :; done
+file_list() {
+    find "$(conf get src)" -iname "*.ans" |
+        {
+            if conf random; then shuf
+            else cat
+            fi
+        }
+}
+
+view() {
+    local -a playlist playback=PC_PLAY control sleeper
+    readarray -t playlist< <(file_list)
+    local total=${#playlist[@]}
+
+    local i count
+    for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
+
+        if [[ "$playback" == "PC_PAUSE" ]]; then (( i--, count++ ))
+        else
+            view_file "$(readlink -f "${playlist[$i]}")"
+            playback=$(retcode key $?)
+        fi
+
+        log "list playback is $playback"
+
+        (( (playback == PC_PLAY || playback == PC_PAUSE)
+        && (count - 1 && (i + 1 < total)) )) && {
+            log "enter pause"
+
+            ( sleep $(( $(conf get pause) )) )&
+            sleeper=$!
+
+            while kill -0 "$sleeper" &> /dev/null; do
+                unset control
+                read -t0.5 control
+                log "playback control (while pausing) $control"
+                case $control in
+                    PC_PLAY)
+                        if [[ "$playback" == "PC_PLAY" ]]; then
+                            playback=PC_PAUSE
+                        elif [[ "$playback" == "PC_PAUSE" ]]; then
+                            playback=PC_PLAY
+                        fi
+                        break
+                        ;;
+                    PC_R_@(UP|DOWN)?(2)) change_rate $control ;;
+                    PC_@(STOP|NEXT|PREV))
+                        playback=$control
+                        break
+                        ;;
+                    PC_@(HELP|MENU))
+                        break
+                        ;;
+                    *) continue
+                        ;;
+                esac
+            done< <(playback_control)
+
+            log "exit pause"
+        }
+
+        log "list playback is $playback"
+
+        (( playback == PC_PAUSE )) && continue
+        (( playback == PC_STOP )) && break
+        (( playback == PC_NEXT )) && (( count++ ))
+        (( playback == PC_PREV )) && (( i -= (i ? 2 : 1), count++ ))
+
+        conf clear && clear
+        conf reset && reset
+    done
 }
 
 confirm() {
@@ -203,48 +294,20 @@ confirm() {
     }
 }
 
-view() {
-    local -a files
-    readarray -t files< <(find "$(conf get src)" -iname "*.ans")
-
-    local total=${#files[@]}
-
-    local i r count
-    for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
-        if conf random; then
-            (( r=RANDOM % ${#files[@]} ))
-            file="$(readlink -f "${files[$r]}")"
-            unset files[$r]
-            files=("${files[@]}")
-         else
-            file="$(readlink -f "${files[$i]}")"
-        fi
-
-        view_file "$file"
-
-        case $? in
-            ${RETCODES[PC_STOP]}) break ;;
-            ${RETCODES[PC_PLAY]}) (( count-1 && (i+1 < total) )) && sleep $(( $(conf get pause) )) ;;
-        esac
-
-        conf clear && clear
-        conf reset && reset
-    done
-}
-
 manage() {
     local base="$(basename "$(readlink -f "$(conf src)")")"
     local file symlink symlink_dir symlink_exists prompt choice
 
     local -a files
-    readarray -t files< <(find "$(conf get src)" -iname "*.ans")
+    readarray -t files< <(file_list)
+    local total=${#files[@]}
 
-    for file in "${files[@]}"; do
-        trap '' INT
+    local i count
+    for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
+        trap noop INT
+        file="$(readlink -f "${playlist[$i]}")"
 
         if [[ -n $(conf get dst) ]]; then
-            file="$(readlink -f "$file")"
-
             symlink="$base${file##*$base}"
             symlink_dir="$(dirname "$(conf get dst)/$symlink")"
 
@@ -296,7 +359,12 @@ manage() {
                        continue 3
                        ;;
 
-                    n) continue 3
+                    p) (( i -= (i ? 2 : 1), count++ ))
+                       continue 3
+                       ;;
+
+                    n) (( count++ ))
+                       continue 3
                        ;;
 
                     r) continue 2
