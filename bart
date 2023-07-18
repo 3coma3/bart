@@ -309,7 +309,7 @@ manage() {
     local i count
     for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
         trap noop INT
-        file="$(readlink -f "${playlist[$i]}")"
+        file="$(readlink -f "${files[$i]}")"
 
         if [[ -n $(conf get dst) ]]; then
             symlink="$base${file##*$base}"
