@@ -114,7 +114,7 @@ noop() {
 }
 
 log() {
-    [[ -v BART_LOG ]] && echo $@ >> "$BART_LOG"
+    [[ -v BART_LOG ]] && echo "${FUNCNAME[1]}: $@" >> "$BART_LOG"
 }
 
 view_file() {
