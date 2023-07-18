@@ -2,20 +2,23 @@
 
 # TODO:
 # - previous an navigation controls for manage mode
-# - restore rate after watching file
 # - add --help
-# - mini help in viewer (press h)
-# - online help in view/manage modes (? option)
-# - online menu in view/manage modes (m option)
-#       rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
 #
-# - show detail line in viewer (press l)
+# - view/manage modes
+#       online help (? option)
+#       online menu (m option)
+#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
 #
-# - add switches for all modes
+# - viewer
+#       mini help (press h)
+#       status line/box (press l)
+#
+# - add switches
 #       --minwidth, --minheight, --maxwidth, --maxheight (in view mode, only with type dir)
 #       --auto-max (in view mode, only with type dir)
 #       --auto-viewport
 #
+# - restore rate after watching file
 # - add file explorer
 
 shopt -s extglob
