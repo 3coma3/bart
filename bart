@@ -221,9 +221,12 @@ view() {
         fi
 
         view_file "$file"
-        (( $? == ${RETCODES[PC_STOP]} )) && break
 
-        (( count-1 && (i+1 < total) )) && sleep $(( $(conf get pause) ))
+        case $? in
+            ${RETCODES[PC_STOP]}) break ;;
+            ${RETCODES[PC_PLAY]}) (( count-1 && (i+1 < total) )) && sleep $(( $(conf get pause) )) ;;
+        esac
+
         conf clear && clear
         conf reset && reset
     done
