@@ -81,9 +81,8 @@ declare -Ai RETCODES=(
     [T_STR]=6
 
     # process result
-    [P_OK]=0
-    [P_NOOP]=0
-    [P_ERROR]=1
+    [P_NOOP]=10
+    [P_ERROR]=11
     [P_ABORT]=11
 
     # playback control
@@ -102,7 +101,15 @@ declare -Ai RETCODES=(
 )
 
 retcode() {
-    return ${RETCODES[$1]}
+    case "$1" in
+        val) echo ${RETCODES[$1]} ;;
+        key)
+            for k in ${!RETCODES[@]}; do
+                (( RETCODES[$k] == $2 )) && echo $k
+            done
+            ;;
+        *) return ${RETCODES[$1]} ;;
+    esac
 }
 
 noop() {
