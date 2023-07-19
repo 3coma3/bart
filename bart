@@ -534,33 +534,33 @@ init() {
             skip=FALSE
 
             case "$token" in
-                -@(l|-include-linked)) k='include_linked=TRUE' ;;
-                       -@(n*|-count)*) k=count                 ;;
-                        -@(t*|-rate)*) k=rate                  ;;
-                       -@(p*|-pause)*) k=pause                 ;;
-                       -@(r*|-random)) k='random=TRUE'         ;;
-                        -@(c*|-clear)) k='clear=TRUE'          ;;
-                        -@(R*|-reset)) k='reset=TRUE'          ;;
-                        -@(q*|-quiet)) k='quiet=TRUE'          ;;
-                          -@(y*|-yes)) k='yes=TRUE'            ;;
-                    -@(w*|-minwidth)*) k=min_width             ;;
-                    -@(W*|-maxwidth)*) k=max_width             ;;
-                   -@(h*|-minheight)*) k=min_height            ;;
-                   -@(H*|-maxheight)*) k=max_height            ;;
-                     -@(A*|-auto-max)) k='auto_max=TRUE'       ;;
-                -@(V*|-auto-viewport)) k='auto_viewport=TRUE'  ;;
-                     -@(L*|-logfile)*) k=logfile               ;;
-                                !(-*)) if ! retcode $src_cli; then
-                                           log "CLI got src: $token"
-                                           src_cli=TRUE
-                                           conf src="$token"
-                                           continue
-                                       elif ! retcode $dst_cli; then
-                                           log "CLI got dst: $token"
-                                           dst_cli=TRUE
-                                           conf dst="$token"
-                                           continue
-                                       fi                      ;;
+                -@(l*|-include-linked)) k='include_linked=TRUE' ;;
+                        -@(r*|-random)) k='random=TRUE'         ;;
+                         -@(c*|-clear)) k='clear=TRUE'          ;;
+                         -@(R*|-reset)) k='reset=TRUE'          ;;
+                         -@(q*|-quiet)) k='quiet=TRUE'          ;;
+                           -@(y*|-yes)) k='yes=TRUE'            ;;
+                      -@(A*|-auto-max)) k='auto_max=TRUE'       ;;
+                 -@(V*|-auto-viewport)) k='auto_viewport=TRUE'  ;;
+                         -@(n|-count)*) k=count                 ;;
+                          -@(t|-rate)*) k=rate                  ;;
+                         -@(p|-pause)*) k=pause                 ;;
+                      -@(w|-minwidth)*) k=min_width             ;;
+                      -@(W|-maxwidth)*) k=max_width             ;;
+                     -@(h|-minheight)*) k=min_height            ;;
+                     -@(H|-maxheight)*) k=max_height            ;;
+                       -@(L|-logfile)*) k=logfile               ;;
+                                 !(-*)) if ! retcode $src_cli; then
+                                            log "CLI got src: $token"
+                                            src_cli=TRUE
+                                            conf src="$token"
+                                            continue
+                                        elif ! retcode $dst_cli; then
+                                            log "CLI got dst: $token"
+                                            dst_cli=TRUE
+                                            conf dst="$token"
+                                            continue
+                                        fi                      ;;
             esac
 
             [[ -v k ]] || error P_NOTOK "unrecognized token $token"
