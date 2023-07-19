@@ -77,7 +77,9 @@ declare -Ai RETCODES=(
     [P_SUCESS]=$TRUE
     [P_NOOP]=10
     [P_ERROR]=11
-    [P_ABORT]=11
+    [P_ABORT]=12
+    [P_NOCMD]=13
+    [P_NOTOK]=14
 
     # playback control
     [PC_PLAY]=20
