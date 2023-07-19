@@ -24,10 +24,16 @@
 shopt -s extglob
 
 
+# BASICS -----------------------------------------------------------------------
+shopt -s extglob
+
 # "somewhat sane" true and false
+# opposite semantics for return values and arithmetic tests, courtesy of bash
 declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
 
+
+# CONFIG -----------------------------------------------------------------------
 declare -A CONFIG
 
 pretty_print() {
@@ -83,6 +89,8 @@ conf() {
     return $FALSE
 }
 
+
+# CODES ------------------------------------------------------------------------
 declare -Ai RETCODES=(
     # types
     [TRUE]=$TRUE
@@ -133,14 +141,53 @@ noop() {
     retcode NOOP
 }
 
-log() {
-    [[ -v BART_LOG ]] && echo "${FUNCNAME[1]}: $@" >> "$BART_LOG"
-}
 
+# I/O --------------------------------------------------------------------------
 clear_stdin() {
     read -t 0 && while read -e -t 0.1; do :; done
 }
 
+confirm() {
+    conf yes || {
+        echo
+        read -r -p "${1:-Are you sure? (y/N)} " response
+        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
+    }
+}
+
+msg() {
+    (( $# )) && {
+        echo -e "$@" >&2
+        return
+    }
+    cat >&2
+}
+
+header() {
+    local tmp="${@}" length=80 char='-'
+    local header=$(printf "%0$(( length - ${#tmp} ))d")
+    msg "\n$@ ${header//?/${char}}\n"
+}
+
+error() {
+    local code=${1}
+
+    if [[ -v RETCODES[$code] ]]; then shift
+    else code=P_ERROR
+    fi
+
+    (( $# )) && msg "$FUNCNAME: $@"
+    log "$code $@"
+    retcode $code
+    exit
+}
+
+log() {
+    [[ -n "$(conf get logfile)" ]] && echo "${FUNCNAME[1]}: $@" >> "$(conf get logfile)"
+}
+
+
+# PLAYBACK ---------------------------------------------------------------------
 playback_control() {
     local -A control_mappings=(
         [_]=PC_PLAY     # this is a space
@@ -181,6 +228,17 @@ change_rate() {
     log "updated rate to $(conf get rate)"
 }
 
+
+# MISC UTILS -------------------------------------------------------------------
+file_list() {
+    find "$(conf get src)" -iname "*.ans" |
+        {
+            if conf random; then shuf
+            else cat
+            fi
+        }
+}
+
 new_pipe() {
     local pipe="$(mktemp -tu $(conf get script_name)-playback.$(printf 'X%.0s' {1..10}))"
     mkfifo "$pipe"
@@ -188,6 +246,8 @@ new_pipe() {
     echo "$pipe"
 }
 
+
+# COMMANDS ---------------------------------------------------------------------
 view_file() {
     local file="${1:-$(conf get src)}" playback control reader writer pipe="$(new_pipe)"
     local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
@@ -240,15 +300,6 @@ view_file() {
 
     echo -e '\033[0m'
     retcode $playback
-}
-
-file_list() {
-    find "$(conf get src)" -iname "*.ans" |
-        {
-            if conf random; then shuf
-            else cat
-            fi
-        }
 }
 
 view() {
@@ -312,14 +363,6 @@ view() {
         conf clear && clear
         conf reset && reset
     done
-}
-
-confirm() {
-    conf yes || {
-        echo
-        read -r -p "${1:-Are you sure? (y/N)} " response
-        [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
-    }
 }
 
 manage() {
