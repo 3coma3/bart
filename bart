@@ -305,8 +305,11 @@ view() {
     readarray -t playlist< <(file_list)
     total=${#playlist[@]}
 
-    local i count
-    for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
+    log "$(conf get count) images (max $total) from $(conf get src)"
+
+    local i
+    for (( i=0; i < $(conf get count), i < total; i++ )); do
+        log "list pointer $i"
 
         if [[ $playback =~ ^PC_(PLAY|NEXT|PREV)$ ]]; then
             view_file "$(readlink -f "${playlist[$i]}")"
@@ -314,7 +317,7 @@ view() {
         fi
 
         # next/prev skip pause since they jump around the playlist
-        [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] && (( count - 1 && (i + 1 < total) )) && {
+        [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] && (( i < $(conf get count), i < total )) && {
             log "enter pause"
 
             ( sleep $(( $(conf get pause) )) ) & sleeper=$!
@@ -345,12 +348,11 @@ view() {
         log "list playback is $playback"
 
         case $playback in
-            PC_STOP) break                           ;;
+            PC_STOP) break                  ;;
             PC_PAUSE)
-                (( i--, count++ ))                      # freeze arrow and counter
-                continue                             ;;
-            PC_NEXT) (( count++ ))                   ;; # freeze counter
-            PC_PREV) (( i -= (i ? 2 : 1), count++ )) ;; # move arrow, freeze counter
+                (( i-- ))                      # freeze arrow
+                continue                    ;;
+            PC_PREV) (( i -= (i ? 2 : 1) )) ;; # move arrow
         esac
 
         conf clear && clear
@@ -366,8 +368,10 @@ manage() {
     readarray -t files< <(file_list)
     local total=${#files[@]}
 
-    local i count
-    for (( i=0, count=$(( $(conf get count) )) ? $(( $(conf get count) )) : -1; (i < total) && count; i++, count-- )); do
+    local i
+    for (( i=0; i < $(conf get count), i < total; i++ )); do
+        log "list pointer $i"
+
         trap noop INT
         file="$(readlink -f "${files[$i]}")"
 
@@ -387,15 +391,14 @@ manage() {
             view_file "$file"
             clear_stdin
 
-            if [[ -n $(conf get dst) ]]; then
+            if [[ -z $(conf get dst) ]]; then prompt='delete/prev/replay/next/quit (d/p/r/n/q)'
+            else
                 if (( symlink_exists )); then
                     msg "This file is already linked."
                     prompt='unlink/delete/prev/replay/next/quit (l/d/p/r/n/q)'
                 else
                     prompt='link/delete/prev/replay/next/quit (l/d/p/r/n/q)'
                 fi
-            else
-                prompt='delete/prev/replay/next/quit (d/p/r/n/q)'
             fi
 
             # ensure-valid-choice loop
@@ -403,7 +406,6 @@ manage() {
                 case "$choice" in
                     d) confirm || continue 3
                        rm -v "$file"                    ;&
-
 
                     l) if (( symlink_exists )); then
                            [[ "$choice" == l ]] && { confirm || continue 3 ;}
@@ -421,14 +423,10 @@ manage() {
 
                        continue 3                       ;;
 
-                    p) (( i -= (i ? 2 : 1), count++ ))
+                    p) (( i -= (i ? 2 : 1) ))
                        continue 3                       ;;
-
-                    n) (( count++ ))
-                       continue 3                       ;;
-
+                    n) continue 3                       ;;
                     r) continue 2                       ;;
-
                     q) echo -e "Bye!\n"
                        return ${RETCODES[P_SUCESS]}     ;;
                 esac
