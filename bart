@@ -326,7 +326,7 @@ view() {
     log "$(conf get count) images (max $total) from $(conf get src)"
 
     local i
-    for (( i=0; i < $(conf get count), i < total; i++ )); do
+    for (( i = 0; i < $(conf get count) && i < total; i++ )); do
         log "list pointer $i"
 
         if [[ $playback =~ ^PC_(PLAY|NEXT|PREV)$ ]]; then
@@ -387,7 +387,7 @@ manage() {
     local total=${#files[@]}
 
     local i
-    for (( i=0; i < $(conf get count), i < total; i++ )); do
+    for (( i=0; i < $(conf get count) && i < total; i++ )); do
         log "list pointer $i"
 
         trap noop INT
