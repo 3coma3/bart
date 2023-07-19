@@ -531,7 +531,6 @@ init() {
 
         local src_cli=FALSE dst_cli=FALSE k skip=FALSE
         while :; do
-
             (! retcode $skip) && token="$1" && shift
             skip=FALSE
 
@@ -589,7 +588,7 @@ init() {
             fi
 
             unset k
-            (( $# )) || break
+            retcode $skip || (( $# )) || break
         done
     }
     log "done processing CLI, current config is $(conf print)"
