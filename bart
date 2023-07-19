@@ -1,27 +1,45 @@
 #!/bin/bash
 
 # TODO:
-# - previous an navigation controls for manage mode
-# - add --help
+# - define end of list behavior in random modes
 #
-# - view/manage modes
+# - manage()
+#       fix symlink path generation in dst
+#       prev/next nav controls for manage mode
+#       cleanup / simplify
+#
+# - add
+#       --help
+#       options for global/per file rate change effects
+#       regex/glob filters and listings
+#       output on stderr
+#
+# - view() and manage()
 #       online help (? option)
 #       online menu (m option)
 #           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
 #
-# - viewer
+# - view_file()
 #       mini help (press h)
 #       status line/box (press l)
 #
-# - add switches
+# - write initial README
+#
+# - features
 #       --minwidth, --minheight, --maxwidth, --maxheight (in view mode, only with type dir)
 #       --auto-max (in view mode, only with type dir)
 #       --auto-viewport
+#       format exports
+#       remote control
 #
-# - restore rate after watching file
-# - add file explorer
+# - UI
+#       integrate view/manage modes
+#       full TUI
+#       file explorer
 
-shopt -s extglob
+# - chores
+#       modularize and source/call only what's needed
+#       full doc
 
 
 # BASICS -----------------------------------------------------------------------
