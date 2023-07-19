@@ -300,7 +300,7 @@ confirm() {
 }
 
 manage() {
-    local base="$(basename "$(readlink -f "$(conf src)")")"
+    local base="$(basename "$(readlink -f "$(conf get src)")")"
     local file symlink symlink_dir symlink_exists prompt choice
 
     local -a files
