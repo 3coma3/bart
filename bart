@@ -117,12 +117,14 @@ declare -Ai RETCODES=(
 
 retcode() {
     case "$1" in
-        val) echo ${RETCODES[$1]} ;;
-        key)
-            for k in ${!RETCODES[@]}; do
-                (( RETCODES[$k] == $2 )) && echo $k
-            done
-            ;;
+        val) echo ${RETCODES[$2]} ;;
+        key) for k in ${!RETCODES[@]}; do
+                (( RETCODES[$k] == $2 )) && {
+                    echo $k
+                    $FUNCNAME TRUE
+                }
+             done
+             $FUNCNAME FALSE      ;;
         *) return ${RETCODES[$1]} ;;
     esac
 }
