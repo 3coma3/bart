@@ -323,6 +323,8 @@ view() {
     readarray -t playlist< <(file_list)
     local total=${#playlist[@]}
 
+    (( $(conf get count) )) || conf count=$total
+
     log "$(conf get count) images (max $total) from $(conf get src)"
 
     local i
@@ -385,6 +387,8 @@ manage() {
     local -a files
     readarray -t files< <(file_list)
     local total=${#files[@]}
+
+    (( $(conf get count) )) || conf count=$total
 
     local i
     for (( i = 0; i < $(conf get count) && i < total; i++ )); do
