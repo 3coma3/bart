@@ -275,21 +275,17 @@ view_file() {
                     playback=PC_PLAY
                     pv -R $reader --rate-limit $(conf get rate)
                 fi
-                log "playback changed to $playback"
-                ;;
+                log "playback changed to $playback"         ;;
             PC_R_@(UP|DOWN)?(2))
                 change_rate $control
-                pv -R $reader --rate-limit $(conf get rate)
-                ;;
+                pv -R $reader --rate-limit $(conf get rate) ;;
             PC_@(NEXT|PREV|HELP|MENU))
                 playback=$control
                 log "playback changed to $playback"
-                break
-                ;;
+                break                                       ;;
             PC_STOP) [[ $playback == PC_PLAY ]] && playback=PC_STOP
                 log "playback changed to $playback"
-                break
-                ;;
+                break                                       ;;
         esac
     done< <(playback_control)
 
@@ -333,15 +329,13 @@ view() {
                         if [[ $playback == PC_PLAY ]]; then playback=PC_PAUSE
                         elif [[ $playback == PC_PAUSE ]]; then playback=PC_PLAY
                         fi
-                        break
-                        ;;
+                        break                                 ;;
                     PC_@(STOP|NEXT|PREV))
                         playback=$control
-                        break
-                        ;;
+                        break                                 ;;
                     PC_R_@(UP|DOWN)?(2)) change_rate $control ;;
-                    PC_@(HELP|MENU)) break ;;
-                    *) continue ;;
+                    PC_@(HELP|MENU)) break                    ;;
+                    *) continue                               ;;
                 esac
             done< <(playback_control)
 
@@ -351,11 +345,10 @@ view() {
         log "list playback is $playback"
 
         case $playback in
-            PC_STOP) break ;;
+            PC_STOP) break                           ;;
             PC_PAUSE)
                 (( i--, count++ ))                      # freeze arrow and counter
-                continue
-                ;;
+                continue                             ;;
             PC_NEXT) (( count++ ))                   ;; # freeze counter
             PC_PREV) (( i -= (i ? 2 : 1), count++ )) ;; # move arrow, freeze counter
         esac
@@ -396,7 +389,7 @@ manage() {
 
             if [[ -n $(conf get dst) ]]; then
                 if (( symlink_exists )); then
-                    echo "This file is already linked."
+                    msg "This file is already linked."
                     prompt='unlink/delete/prev/replay/next/quit (l/d/p/r/n/q)'
                 else
                     prompt='link/delete/prev/replay/next/quit (l/d/p/r/n/q)'
@@ -409,8 +402,8 @@ manage() {
             while read -n1 -p "${prompt}? " choice; do
                 case "$choice" in
                     d) confirm || continue 3
-                       rm -v "$file"
-                       ;&
+                       rm -v "$file"                    ;&
+
 
                     l) if (( symlink_exists )); then
                            [[ "$choice" == l ]] && { confirm || continue 3 ;}
@@ -426,23 +419,18 @@ manage() {
                            ln -sv "$file" "$(conf get dst)/$symlink"
                        fi
 
-                       continue 3
-                       ;;
+                       continue 3                       ;;
 
                     p) (( i -= (i ? 2 : 1), count++ ))
-                       continue 3
-                       ;;
+                       continue 3                       ;;
 
                     n) (( count++ ))
-                       continue 3
-                       ;;
+                       continue 3                       ;;
 
-                    r) continue 2
-                       ;;
+                    r) continue 2                       ;;
 
                     q) echo -e "Bye!\n"
-                       return ${RETCODES[P_SUCESS]}
-                       ;;
+                       return ${RETCODES[P_SUCESS]}     ;;
                 esac
             done
         done
