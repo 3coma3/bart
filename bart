@@ -451,13 +451,17 @@ manage() {
     done
 }
 
-go() {
-    # config defaults
-    conf script_name="$(basename "$0")"
+init() {
+    # config priority: defaults < config < env < cli
+
+    # defaults
     conf script_dir="$(dirname $(readlink -f "$0"))"
     conf script_name="$(basename "$0")"
     [[ -f "$(conf get script_dir)/VERSION" ]] && conf script_version=$(cat "$(conf get script_dir)/VERSION")
     conf script_title=bart
+    conf script_env_prefix=$(conf get script_title | sed -r 's/./\U&/g')
+    conf config=''
+    conf logfile=''
     conf src=''
     conf dst=''
     conf rate=5000
@@ -476,82 +480,120 @@ go() {
     conf maxh=0
     conf minh=0
 
-    # process command line
-    local command=$1; shift
-
-    case $command in
-        view?(_file))
-            conf src="$1"
-            shift
-            ;;
-
-        manage)
-            conf src="$1"
-            shift
-            [[ ! "$1" =~ ^--.+ ]] && { conf dst="$1"; shift; }
-            ;;
-    esac
-
-    while (( $# )); do
-        token="$1" && shift
-        case "$token" in
-            -@(q|-quiet))
-                conf quiet=TRUE
-                ;;
-            -@(t|-rate))
-                conf rate=$1
-                shift
-                ;;
-            -@(c|-count))
-                conf count=$1
-                shift
-                ;;
-            -@(p|-pause))
-                conf pause=$1
-                shift
-                ;;
-            -@(r|-random))
-                conf random=TRUE
-                ;;
-            -@(y|-yes))
-                conf yes=TRUE
-                ;;
-            -@(l|-include-linked))
-                conf include_linked=TRUE
-                ;;
-            -@(C|-clear))
-                conf clear=TRUE
-                ;;
-            -@(R|-reset))
-                conf reset=TRUE
-                ;;
-            -@(w|-minwidth))
-                conf min_width=$1
-                shift
-                ;;
-            -@(h|-minheight))
-                conf min_height=$1
-                shift
-                ;;
-            -@(W|-maxwidth))
-                conf max_width=$1
-                shift
-                ;;
-            -@(H|-maxheight))
-                conf max_height=$1
-                shift
-                ;;
-            -@(A|-auto-max))
-                conf auto_max=TRUE
-                ;;
-            -@(V|-auto-viewport))
-                conf auto_viewport=TRUE
-                ;;
-        esac
+    # env
+    local k kenv
+    for k in ${!CONFIG[@]}; do
+        [[ $k =~ ^[^=]+__script_[^=]+=.*$ ]] && continue
+        k=${k##*__} ; kenv=$(conf get script_env_prefix)_${k^^}
+        [[ -v $kenv ]] && {
+            log "found option from environment: $k=${!kenv}"
+            conf $k=${!kenv}
+        }
     done
 
-    $command
-    stty echo
+    log "$(conf get script_title) $(conf get script_version) initializing config"
+    log "done processing defaults and env, current config is $(conf print)"
+
+    # file
+    [[ -f "$(conf get config)" ]] && {
+        log "processing config file: $(conf get config)"
+        while read line; do
+            [[ $line =~ ^script_.* ]] && continue
+            k=$(conf get script_env_prefix)_${line%%=*}
+            [[ ! -v "${k^^}" ]] && {
+                log "found option from config file: $line"
+                conf "$line"
+            }
+        done< <(cat "$(conf get config)")
+    }
+
+    log "done processing config file, current config is $(conf print)"
+
+    (( $# )) && {
+        log "processing CLI"
+
+        # cli
+        local command=$1 allowed_commands="view?(_file)|manage"
+        case $command in
+            @($allowed_commands))
+                log "CLI got command: $command"
+                conf script_command=$command  ;;
+            *) error P_NOCMD "unrecognized command $command"   ;;
+        esac
+
+        shift
+
+        local src_cli=FALSE dst_cli=FALSE k skip=FALSE
+        while :; do
+
+            (! retcode $skip) && token="$1" && shift
+            skip=FALSE
+
+            case "$token" in
+                -@(l|-include-linked)) k='include_linked=TRUE' ;;
+                       -@(n*|-count)*) k=count                 ;;
+                        -@(t*|-rate)*) k=rate                  ;;
+                       -@(p*|-pause)*) k=pause                 ;;
+                       -@(r*|-random)) k='random=TRUE'         ;;
+                        -@(c*|-clear)) k='clear=TRUE'          ;;
+                        -@(R*|-reset)) k='reset=TRUE'          ;;
+                        -@(q*|-quiet)) k='quiet=TRUE'          ;;
+                          -@(y*|-yes)) k='yes=TRUE'            ;;
+                    -@(w*|-minwidth)*) k=min_width             ;;
+                    -@(W*|-maxwidth)*) k=max_width             ;;
+                   -@(h*|-minheight)*) k=min_height            ;;
+                   -@(H*|-maxheight)*) k=max_height            ;;
+                     -@(A*|-auto-max)) k='auto_max=TRUE'       ;;
+                -@(V*|-auto-viewport)) k='auto_viewport=TRUE'  ;;
+                     -@(L*|-logfile)*) k=logfile               ;;
+                                !(-*)) if ! retcode $src_cli; then
+                                           log "CLI got src: $token"
+                                           src_cli=TRUE
+                                           conf src="$token"
+                                           continue
+                                       elif ! retcode $dst_cli; then
+                                           log "CLI got dst: $token"
+                                           dst_cli=TRUE
+                                           conf dst="$token"
+                                           continue
+                                       fi                      ;;
+            esac
+
+            [[ -v k ]] || error P_NOTOK "unrecognized token $token"
+
+            if [[ $k =~ ^[^=]+=(TRUE|FALSE)$ ]]; then
+                log "CLI got flag: $k"
+                conf "$k"
+
+                [[ $token =~ ^-[[:alpha:]][^-]+$ ]] && {
+                    token="-${token:2}"
+                    log "CLI found more short options to try: $token"
+                    skip=TRUE
+                }
+            elif [[ $token =~ ^-[[:alpha:]][[:digit:]]+$ ]]; then
+                log "CLI short option: $token ($k=${token:2})"
+                conf "$k=${token:2}"
+            elif [[ $token =~ ^-{1,2}[[:alnum:]]+$ ]]; then
+                log "CLI option with space: $token ($k=$1)"
+                conf "$k=$1"
+                shift
+            elif [[ $token =~ ^-{1,2}[[:alnum:]]+(=.+)$ ]]; then
+                log "CLI option with equal: $token ($k=${token##*=})"
+                conf "$k=${token##*=}"
+            fi
+
+            unset k
+            (( $# )) || break
+        done
+
+        log "done processing CLI, current config is $(conf print)"
+    }
+
+    log "done processing configuration"
 }
 
-go $@
+init $@
+$(conf get script_command)
+ret=$?
+stty echo
+retcode $ret
