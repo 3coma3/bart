@@ -30,24 +30,42 @@ declare -i TRUE=$(( !FALSE ))
 
 declare -A CONFIG
 
+pretty_print() {
+    local -n var="$1"
+    local k name
+    local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
+
+    for k in ${!var[@]}; do
+        name=${k##*__}
+        echo "$name=$(
+            if [[ $(conf type $name) == bool ]]; then
+                echo ${TF[$(conf get $name)]}
+            else conf get $name
+            fi
+        )"
+    done | tr '\n' ',' | sed -re '1 s/^/[/' -e '$ s/,$/]/'
+}
+
 conf() {
     local k v test
-    local -i get
+    local -i get gettype
 
     case $1 in
         unset) unset "CONFIG[$2]"
                return $TRUE
                ;;
           get) get=$TRUE k="$2"         ;;
+         type) gettype=$TRUE k="$2"     ;;
+        print) pretty_print CONFIG      ;;
        @(*=*)) k="${1%%=*}" v="${1#*=}" ;;
             *) k="$1"                   ;;
     esac
 
     [[ -v v ]] && {
         case "$v" in
-            TRUE|FALSE) CONFIG[__bool__$k]=${!v}    ;;
-            ''|*[!0-9]*) CONFIG[__str__$k]="$v"     ;;
-                      *) CONFIG[__int__$k]=$v       ;;
+             TRUE|FALSE) CONFIG[__bool__$k]=${!v} ;;
+            ''|*[!0-9]*) CONFIG[__str__$k]="$v"   ;;
+                      *) CONFIG[__int__$k]=$v     ;;
         esac
         return $TRUE
     }
@@ -56,6 +74,7 @@ conf() {
         test="__${t}__${k}"
         [[ -v CONFIG[$test] ]] && {
             [[ -v get ]] && echo ${CONFIG[$test]}
+            [[ -v gettype ]] && echo $t
             [[ $t == bool ]] && return ${CONFIG[$test]}
             return $TRUE
         }
