@@ -391,8 +391,9 @@ go() {
     # config defaults
     conf script_name="$(basename "$0")"
     conf script_dir="$(dirname $(readlink -f "$0"))"
+    conf script_name="$(basename "$0")"
+    [[ -f "$(conf get script_dir)/VERSION" ]] && conf script_version=$(cat "$(conf get script_dir)/VERSION")
     conf script_title=bart
-    [[ -f "$(conf script_dir)/VERSION" ]] && conf script_version=$(cat "$script_dir/VERSION")
     conf src=''
     conf dst=''
     conf rate=5000
