@@ -205,6 +205,24 @@ log() {
 }
 
 
+# MISC UTILS -------------------------------------------------------------------
+file_list() {
+    find "$(conf get src)" -iname "*.ans" |
+        {
+            if conf random; then shuf
+            else cat
+            fi
+        }
+}
+
+new_pipe() {
+    local pipe="$(mktemp -tu $(conf get script_name)-playback.$(printf 'X%.0s' {1..10}))"
+    mkfifo "$pipe"
+    log "created pipe by request of ${FUNCNAME[1]}: $pipe"
+    echo "$pipe"
+}
+
+
 # PLAYBACK ---------------------------------------------------------------------
 playback_control() {
     local -A control_mappings=(
@@ -244,24 +262,6 @@ change_rate() {
     esac
     conf rate=$(( rate < 1 ? 1 : rate ))
     log "updated rate to $(conf get rate)"
-}
-
-
-# MISC UTILS -------------------------------------------------------------------
-file_list() {
-    find "$(conf get src)" -iname "*.ans" |
-        {
-            if conf random; then shuf
-            else cat
-            fi
-        }
-}
-
-new_pipe() {
-    local pipe="$(mktemp -tu $(conf get script_name)-playback.$(printf 'X%.0s' {1..10}))"
-    mkfifo "$pipe"
-    log "created pipe by request of ${FUNCNAME[1]}: $pipe"
-    echo "$pipe"
 }
 
 
@@ -317,11 +317,11 @@ view_file() {
 }
 
 view() {
-    local playback=PC_PLAY total control sleeper
+    local playback=PC_PLAY control sleeper
 
     local -a playlist
     readarray -t playlist< <(file_list)
-    total=${#playlist[@]}
+    local total=${#playlist[@]}
 
     log "$(conf get count) images (max $total) from $(conf get src)"
 
@@ -387,7 +387,7 @@ manage() {
     local total=${#files[@]}
 
     local i
-    for (( i=0; i < $(conf get count) && i < total; i++ )); do
+    for (( i = 0; i < $(conf get count) && i < total; i++ )); do
         log "list pointer $i"
 
         trap noop INT
@@ -455,8 +455,11 @@ manage() {
     done
 }
 
+
+# PROGRAM ----------------------------------------------------------------------
 init() {
     # config priority: defaults < config < env < cli
+    log "$(conf get script_title) $(conf get script_version) initializing config"
 
     # defaults
     conf script_dir="$(dirname $(readlink -f "$0"))"
@@ -484,7 +487,6 @@ init() {
     conf maxh=0
     conf minh=0
 
-    # env
     local k kenv
     for k in ${!CONFIG[@]}; do
         [[ $k =~ ^[^=]+__script_[^=]+=.*$ ]] && continue
@@ -494,11 +496,8 @@ init() {
             conf $k=${!kenv}
         }
     done
-
-    log "$(conf get script_title) $(conf get script_version) initializing config"
     log "done processing defaults and env, current config is $(conf print)"
 
-    # file
     [[ -f "$(conf get config)" ]] && {
         log "processing config file: $(conf get config)"
         while read line; do
@@ -510,7 +509,6 @@ init() {
             }
         done< <(cat "$(conf get config)")
     }
-
     log "done processing config file, current config is $(conf print)"
 
     (( $# )) && {
@@ -589,9 +587,8 @@ init() {
             unset k
             (( $# )) || break
         done
-
-        log "done processing CLI, current config is $(conf print)"
     }
+    log "done processing CLI, current config is $(conf print)"
 
     log "done processing configuration"
 }
