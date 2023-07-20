@@ -347,8 +347,8 @@ view() {
         fi
 
         # next/prev skip pause since they jump around the playlist
-        [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] && (( i < $(conf get count), i < total )) && {
-            log "enter pause"
+        (( $(conf get pause) && i + 1 < $(conf get count) && i + 1 < total )) &&
+        [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] &&  {
             log "enter pause: $(conf get pause) seconds"
 
             ( sleep $(( $(conf get pause) )) ) & sleeper=$!
