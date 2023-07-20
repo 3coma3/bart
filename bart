@@ -250,7 +250,7 @@ playback_control() {
         read -t 0.1 -s -N 1 -d '' key
         clear_stdin
 
-        key=${key// /_}
+        key="${key// /_}"
         if [[ $key =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
         else echo NOOP
         fi
@@ -327,7 +327,7 @@ view_file() {
 }
 
 view() {
-    local playback=PC_PLAY control sleeper
+    local playback control sleeper
 
     local -a playlist
     readarray -t playlist< <(file_list)
@@ -336,6 +336,8 @@ view() {
     (( $(conf get count) )) || conf count=$total
 
     log "$(conf get count) images (max $total) from $(conf get src)"
+
+    playback=PC_PLAY
 
     local i
     for (( i = 0; i < $(conf get count) && i < total; i++ )); do
@@ -380,9 +382,7 @@ view() {
 
         case $playback in
             PC_STOP) break                  ;;
-            PC_PAUSE)
-                (( i-- ))                      # freeze arrow
-                continue                    ;;
+            PC_PAUSE) (( i-- )) ; continue  ;; # freeze arrow
             PC_PREV) (( i -= (i ? 2 : 1) )) ;; # move arrow
         esac
 
@@ -540,7 +540,7 @@ init() {
 
         shift
 
-        local src_cli=FALSE dst_cli=FALSE k skip=FALSE
+        local token k skip=FALSE src_cli=FALSE dst_cli=FALSE
         while :; do
             (! retcode $skip) && token="$1" && shift
             skip=FALSE
