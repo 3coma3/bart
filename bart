@@ -119,7 +119,7 @@ declare -Ai RETCODES=(
     [T_STR]=6
 
     # process result
-    [P_SUCESS]=$TRUE
+    [P_SUCCESS]=$TRUE
     [P_NOOP]=10
     [P_ERROR]=11
     [P_ABORT]=12
@@ -215,8 +215,13 @@ file_list() {
         }
 }
 
+new_tmp () {
+    local suffix="${1}"
+    mktemp -tu $(conf get script_name)${suffix}.$(printf 'X%.0s' {1..10})
+}
+
 new_pipe() {
-    local pipe="$(mktemp -tu $(conf get script_name)-playback.$(printf 'X%.0s' {1..10}))"
+    local pipe="$(new_tmp playback)"
     mkfifo "$pipe"
     log "created pipe by request of ${FUNCNAME[1]}: $pipe"
     echo "$pipe"
@@ -450,7 +455,7 @@ manage() {
                     n) continue 3                       ;;
                     r) continue 2                       ;;
                     q) echo -e "Bye!\n"
-                       return ${RETCODES[P_SUCESS]}     ;;
+                       return ${RETCODES[P_SUCCESS]}     ;;
                 esac
             done
         done
