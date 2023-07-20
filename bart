@@ -349,13 +349,14 @@ view() {
         # next/prev skip pause since they jump around the playlist
         [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] && (( i < $(conf get count), i < total )) && {
             log "enter pause"
+            log "enter pause: $(conf get pause) seconds"
 
             ( sleep $(( $(conf get pause) )) ) & sleeper=$!
 
             while kill -0 $sleeper &> /dev/null; do
                 unset control
                 read -t0.5 control
-                log "playback control (while pausing) $control"
+                log "got playback control $control while pausing"
 
                 case $control in
                     PC_PLAY)
@@ -522,11 +523,11 @@ init() {
                 conf "$line"
             }
         done< <(cat "$(conf get config)")
+        log "done processing config file, current config is $(conf print)"
     }
-    log "done processing config file, current config is $(conf print)"
 
     (( $# )) && {
-        log "processing CLI"
+        log "processing CLI: $@"
 
         # cli
         local command=$1 allowed_commands="view?(_file)|manage"
@@ -600,8 +601,9 @@ init() {
             unset k
             retcode $skip || (( $# )) || break
         done
+
+        log "done processing CLI, current config is $(conf print)"
     }
-    log "done processing CLI, current config is $(conf print)"
 
     log "done processing configuration"
     retcode P_SUCCESS
