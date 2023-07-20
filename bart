@@ -278,6 +278,8 @@ view_file() {
     conf quiet || echo -e "\nFile: $file"
     log "viewing file: $file"
 
+    conf "stty=$(stty -g)"
+
     { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 > "$pipe" ;} & writer=$!
     pv --quiet -C -B32 --rate-limit $(conf get rate) < "$pipe" & reader=$!
 
@@ -314,10 +316,13 @@ view_file() {
 
     trap - INT
 
-    rm $pipe
     kill $writer $reader &> /dev/null
 
+    stty "$(conf get stty)"
     echo -e '\033[0m'
+
+    rm $pipe
+
     retcode $playback
 }
 
@@ -599,10 +604,7 @@ init() {
     log "done processing CLI, current config is $(conf print)"
 
     log "done processing configuration"
+    retcode P_SUCCESS
 }
 
-init $@
-$(conf get script_command)
-ret=$?
-stty echo
-retcode $ret
+init $@ && $(conf get script_command)
