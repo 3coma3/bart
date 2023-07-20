@@ -289,7 +289,7 @@ view_file() {
     while kill -0 "$reader" &> /dev/null; do
         unset control
         read -t0.5 control
-        log "read control $control"
+        [[ ! $control == NOOP ]] && log "got playback control $control"
 
         case $control in
             PC_PLAY)
