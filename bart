@@ -1,29 +1,43 @@
 #!/bin/bash
 
 # TODO:
-# - define end of list behavior in random modes
+# ------------------------------------------------------------------------------
+# - end of list in all modes is controlled by "loop" flag/playback mode/control
+# - PC_REPLAY control
+# - try to have a way to specify / know of logfiles as early as possible, to log
+#   initialization before env (ideally right at the start)
+# - allow FALSE flags from CLI
+# - add minfilesize maxfilesize
 #
 # - manage()
 #       fix symlink path generation in dst
-#       prev/next nav controls for manage mode
+#       add option for flat/preserve structure
+#       honor all controls from view_file() and use $playback
 #       cleanup / simplify
 #
 # - add
 #       --help
 #       options for global/per file rate change effects
 #       regex/glob filters and listings
-#       output on stderr
 #
+# - write initial README
+# - use exit and return instead of retcode where it's clearer/better
+# - verbosity levels
+# - add dev branch
+# - add auto version
+# ------------------------------------------------------------------------------
 # - view() and manage()
 #       online help (? option)
 #       online menu (m option)
-#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
+#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, file info
 #
 # - view_file()
 #       mini help (press h)
 #       status line/box (press l)
-#
-# - write initial README
+# ------------------------------------------------------------------------------
+# - chores
+#       modularize and source/call only what's needed
+#       full doc
 #
 # - features
 #       --minwidth, --minheight, --maxwidth, --maxheight (in view mode, only with type dir)
@@ -31,15 +45,12 @@
 #       --auto-viewport
 #       format exports
 #       remote control
+#       URL view / browse / crawl / manage
 #
 # - UI
 #       integrate view/manage modes
 #       full TUI
 #       file explorer
-
-# - chores
-#       modularize and source/call only what's needed
-#       full doc
 
 
 # BASICS -----------------------------------------------------------------------
