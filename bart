@@ -3,17 +3,20 @@
 # TODO:
 # ------------------------------------------------------------------------------
 # - end of list in all modes is controlled by "loop" flag/playback mode/control
-# - PC_REPLAY control
 # - try to have a way to specify / know of logfiles as early as possible, to log
 #   initialization before env (ideally right at the start)
-# - allow FALSE flags from CLI
+# - allow FALSE flags from CLI (-no prefix)
 # - add minfilesize maxfilesize
+# - use playback_control() in foreground
 #
 # - manage()
 #       fix symlink path generation in dst
 #       add option for flat/preserve structure
 #       honor all controls from view_file() and use $playback
 #       cleanup / simplify
+#       think about manage() being essentially play() with a mandatory menu instead of an optional pause...
+#       add move operation
+#       allow entering dst from the menu in case it wasn't passed or configured
 #
 # - add
 #       --help
@@ -195,9 +198,8 @@ noop() {
 
 # I/O --------------------------------------------------------------------------
 clear_stdin() {
-    read -t 0 && while read -e -t 0.1; do :; done
+    read -t 0 && while read -e -t 0.1 < $(conf get tty) ; do :; done
 }
-
 confirm() {
     conf yes || {
         echo
@@ -264,12 +266,13 @@ new_pipe() {
 # PLAYBACK ---------------------------------------------------------------------
 playback_control() {
     local -A control_mappings=(
-        [_]=PC_PLAY     # this is a space
+        [_]=PC_PP     # this is a space
         [h]=PC_HELP
         [m]=PC_MENU
         [n]=PC_NEXT
         [p]=PC_PREV
         [q]=PC_STOP
+        [r]=PC_REPLAY
         [u]=PC_R_UP
         [d]=PC_R_DOWN
         [U]=PC_R_UP2
@@ -280,8 +283,8 @@ playback_control() {
 
     IFS=''
     while :; do
-        read -t 0.1 -s -N 1 -d '' key
-        clear_stdin
+        read -t 0.1 -s -N 1 -d '' key < $(conf get tty)
+        #clear_stdin
 
         key="${key// /_}"
         if [[ $key =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
@@ -290,71 +293,87 @@ playback_control() {
     done
 }
 
-change_rate() {
-    local rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
-    case $1 in
+update_throttle() {
+    local rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    case "$@" in
            PC_R_UP) (( rate += small )) ;;
           PC_R_UP2) (( rate += big ))   ;;
          PC_R_DOWN) (( rate -= small )) ;;
         PC_R_DOWN2) (( rate -= big ))   ;;
     esac
-    conf rate=$(( rate < 1 ? 1 : rate ))
-    log "updated rate to $(conf get rate)"
+    (( rate = rate  < 1 ? 1 : rate ))
+    conf rate=$rate
+    #conf "throttle=$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)" | awk '{printf "%.2e\n", $1}')"
+    conf "throttle=$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(conf get throttle)"
+}
+
+throttle() {
+    sleep ${1:-$(conf get throttle)}
 }
 
 
 # COMMANDS ---------------------------------------------------------------------
 view_file() {
-    local file="${1:-$(conf get src)}" playback control reader writer pipe="$(new_pipe)"
-    local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
+    local file="${1:-$(conf get src)}" playback control viewer viewer_pipe=$(new_pipe)
 
-    conf quiet || echo -e "\nFile: $file"
+    conf quiet || msg "\nFile: $file"
     log "viewing file: $file"
 
     conf "stty=$(stty -g)"
-
-    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 > "$pipe" ;} & writer=$!
-    pv --quiet -C -B32 --rate-limit $(conf get rate) < "$pipe" & reader=$!
+    tput civis
 
     trap noop INT
 
     playback=PC_PLAY
-    while kill -0 "$reader" &> /dev/null; do
+
+    {   local IFS= t=$(conf get throttle) control
+        trap "read -rst0.1 control < $viewer_pipe" USR1
+        while read -sra line; do
+            for (( i = 0; i < ${#line}; i++ )); do
+                echo -ne ${line:i:1}
+                [[ -v control ]] && {
+                    log "got throttle control $control in viewer"
+                    update_throttle $control
+                    unset control
+                    t=$(conf get throttle)
+                }
+                throttle $t
+            done
+            echo
+        done< <(iconv -f IBM437 -t utf8 "$file")
+        trap - USR1
+    }& viewer=$!
+
+    while kill -0 "$viewer" &> /dev/null; do
         unset control
         read -t0.5 control
-        [[ ! $control == NOOP ]] && log "got playback control $control"
+        [[ $control != NOOP ]] && log "got playback control $control"
 
         case $control in
-            PC_PLAY)
-                if [[ $playback == PC_PLAY ]]; then
-                    playback=PC_PAUSE
-                    pv -R $reader --rate-limit 1
-                elif [[ $playback == PC_PAUSE ]]; then
-                    playback=PC_PLAY
-                    pv -R $reader --rate-limit $(conf get rate)
-                fi
-                log "playback changed to $playback"         ;;
+            PC_PP) if [[ $playback == PC_PLAY ]]; then playback=PC_PAUSE && kill -STOP $viewer
+                   elif [[ $playback == PC_PAUSE ]]; then playback=PC_PLAY && kill -CONT $viewer
+                   fi
+                   log "playback changed to $playback"                       ;;
+            PC_@(NEXT|PREV|HELP|MENU|STOP|REPLAY)) playback=$control ; break ;;
             PC_R_@(UP|DOWN)?(2))
-                change_rate $control
-                pv -R $reader --rate-limit $(conf get rate) ;;
-            PC_@(NEXT|PREV|HELP|MENU))
-                playback=$control
-                log "playback changed to $playback"
-                break                                       ;;
-            PC_STOP) [[ $playback == PC_PLAY ]] && playback=PC_STOP
-                log "playback changed to $playback"
-                break                                       ;;
+                { echo $control >> "$viewer_pipe" ;}& kill -USR1 $viewer
+                update_throttle $control                                     ;;
         esac
     done< <(playback_control)
 
-    trap - INT
+    log "playback changed to $playback"
 
-    kill $writer $reader &> /dev/null
+    kill $viewer &> /dev/null
+    unset viewer
+    log $(rm -v "$viewer_pipe")
+
+    trap - INT USR1
 
     stty "$(conf get stty)"
+    #tput sgr0
     echo -e '\033[0m'
-
-    rm $pipe
+    tput cnorm
 
     retcode $playback
 }
@@ -374,49 +393,50 @@ view() {
 
     local i
     for (( i = 0; i < $(conf get count) && i < total; i++ )); do
-        log "list pointer $i"
-
-        if [[ $playback =~ ^PC_(PLAY|NEXT|PREV)$ ]]; then
+        if [[ $playback =~ ^PC_((RE)?PLAY|NEXT|PREV)$ ]]; then
+            log "list pointer $i"
             view_file "$(readlink -f "${playlist[$i]}")"
             playback=$(retcode key $?)
         fi
 
         # next/prev skip pause since they jump around the playlist
         (( $(conf get pause) && i + 1 < $(conf get count) && i + 1 < total )) &&
-        [[ $playback == PC_PLAY || $playback == PC_PAUSE ]] &&  {
-            log "enter pause: $(conf get pause) seconds"
+        [[ $playback =~ ^PC_(PLAY|PAUSE)$ ]] && {
+            [[ $playback == PC_PLAY ]] && log "enter pause: $(conf get pause) seconds"
 
-            ( sleep $(( $(conf get pause) )) ) & sleeper=$!
+            ( sleep $(( $(conf get pause) )) )& sleeper=$!
 
             while kill -0 $sleeper &> /dev/null; do
                 unset control
                 read -t0.5 control
-                log "got playback control $control while pausing"
+
+                [[ ! $control == NOOP ]] && log "got playback control $control while pausing"
 
                 case $control in
-                    PC_PLAY)
-                        if [[ $playback == PC_PLAY ]]; then playback=PC_PAUSE
-                        elif [[ $playback == PC_PAUSE ]]; then playback=PC_PLAY
-                        fi
-                        break                                 ;;
-                    PC_@(STOP|NEXT|PREV))
-                        playback=$control
-                        break                                 ;;
-                    PC_R_@(UP|DOWN)?(2)) change_rate $control ;;
-                    PC_@(HELP|MENU)) break                    ;;
-                    *) continue                               ;;
+                    PC_PP) if [[ $playback == PC_PLAY ]]; then
+                               playback=PC_PAUSE
+                               log "list playback is $playback"
+                           elif [[ $playback == PC_PAUSE ]]; then playback=PC_PLAY
+                           fi
+                                                                     break ;;
+          PC_@(STOP|NEXT|PREV|REPLAY|HELP|MENU)) playback=$control ; break ;;
+                            PC_R_@(UP|DOWN)?(2)) update_throttle $control  ;;
+                                              *)                  continue ;;
                 esac
             done< <(playback_control)
 
-            log "exit pause"
+            kill $sleeper &> /dev/null
+            unset sleeper
         }
 
-        log "list playback is $playback"
+        [[ $playback != PC_PAUSE ]] && log "list playback is $playback"
 
         case $playback in
-            PC_STOP) break                  ;;
+            PC_REPLAY) playback=PC_PLAY     ;&
             PC_PAUSE) (( i-- )) ; continue  ;; # freeze arrow
             PC_PREV) (( i -= (i ? 2 : 1) )) ;; # move arrow
+            PC_STOP)                        ;&
+            PC_@(HELP|MENU)) break          ;; # not yet implemented, get out
         esac
 
         conf clear && clear
@@ -519,9 +539,9 @@ init() {
     conf logfile=''
     conf src=''
     conf dst=''
-    conf rate=5000
-    conf rate_factor_small=30
-    conf rate_factor_big=150
+    conf rate='1K'
+    conf rate_factor_small=16
+    conf rate_factor_big=256
     conf count=0
     conf pause=0
     conf include_linked=FALSE
@@ -643,7 +663,12 @@ init() {
 
     log 'done processing configuration'
 
+    update_throttle
+    conf tty=$(tty)
+
     retcode P_SUCCESS
 }
 
+export BASH_LOADABLES_PATH=$(pkg-config bash --variable=loadablesdir &2> /dev/null )
+[[ -n BASH_LOADABLES_PATH ]] && enable -f sleep sleep
 init $@ && $(conf get script_command)
