@@ -601,12 +601,12 @@ init() {
                                             log "CLI got src: $token"
                                             src_cli=TRUE
                                             conf src="$token"
-                                            continue
+                                            k=src
                                         elif ! retcode $dst_cli; then
                                             log "CLI got dst: $token"
                                             dst_cli=TRUE
                                             conf dst="$token"
-                                            continue
+                                            k=dst
                                         fi                      ;;
             esac
 
