@@ -621,7 +621,7 @@ init() {
                     log "CLI has more short options to try: $token"
                     skip=TRUE
                 }
-            elif [[ $token =~ ^-[[:alpha:]][[:digit:]]+$ ]]; then
+            elif [[ $token =~ ^-[[:alpha:]][[:alnum:]]+$ ]]; then
                 log "CLI got short option: $token ($k=${token:2})"
                 conf "$k=${token:2}"
             elif [[ $token =~ ^-{1,2}[[:alnum:]]+$ ]]; then
