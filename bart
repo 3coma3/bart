@@ -62,55 +62,59 @@ declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
 
 
-# CONFIG -----------------------------------------------------------------------
-declare -A CONFIG
+# VALUE MANAGEMENT -------------------------------------------------------------
+declare -A KV
 
-pretty_print() {
-    local -n var="$1"
-    local k name
-    local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
-
-    for k in ${!var[@]}; do
-        name=${k##*__}
-        echo "$name=$(
-            if [[ $(conf type $name) == bool ]]; then
-                echo ${TF[$(conf get $name)]}
-            else conf get $name
-            fi
-        )"
-    done | tr '\n' ',' | sed -re '1 s/^/[/' -e '$ s/,$/]/'
+print_arr() {
+    local -n arr="$1"
+    local v
+    for v in ${!arr[@]}; do
+        echo $v=${arr[$v]}
+    done
 }
 
-conf() {
-    local k v test
-    local -i get gettype
+print_kv() {
+    local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
+    local ns="$1${1:+\/}" n k v
 
-    case $1 in
-        unset) unset "CONFIG[$2]"
-               return $TRUE
-               ;;
-          get) get=$TRUE k="$2"         ;;
-         type) gettype=$TRUE k="$2"     ;;
-        print) pretty_print CONFIG      ;;
-       @(*=*)) k="${1%%=*}" v="${1#*=}" ;;
-            *) k="$1"                   ;;
-    esac
+    print_arr KV | sed -rn "/^${ns}.*$/ s/^([^_]+)__[^_]+__([^=]+)=(.*)/\1 \2 \3/p" | sort | while read n k v; do
+        echo $n$k=$(if [[ $(kv type "$n$k") == bool ]]; then echo ${TF[$v]}; else echo "$v"; fi)
+    done
+}
 
-    [[ -v v ]] && {
+kv() {
+    # TODO: add (recursive) ns deletion
+    local cmd=test line ns k v test
+
+    if [[ $1 =~ ^[^=]+=.*$ ]]; then cmd=set
+    elif [[ $1 =~ ^(get|del|type|print)$ ]]; then cmd=$1; shift
+    fi
+
+    [[ $cmd == "print" ]] && {
+        print_kv "$1"
+        return $?
+    }
+
+    line="$@" v="${line#*=}" k=${line%%=*} ns="${k%/*}" k="${k##*/}"
+
+    [[ $cmd == "set" ]] && {
         case "$v" in
-             TRUE|FALSE) CONFIG[__bool__$k]=${!v} ;;
-            ''|*[!0-9]*) CONFIG[__str__$k]="$v"   ;;
-                      *) CONFIG[__int__$k]=$v     ;;
+             TRUE|FALSE) KV[${ns}/__bool__${k}]=${!v} ;;
+            ''|*[!0-9]*) KV[${ns}/__str__${k}]="$v"   ;;
+                      *) KV[${ns}/__int__${k}]=$v     ;;
         esac
         return $TRUE
     }
 
     for t in bool int str; do
-        test="__${t}__${k}"
-        [[ -v CONFIG[$test] ]] && {
-            [[ -v get ]] && echo ${CONFIG[$test]}
-            [[ -v gettype ]] && echo $t
-            [[ $t == bool ]] && return ${CONFIG[$test]}
+        test="${ns}/__${t}__${k}"
+        [[ -v KV[$test] ]] && {
+            case $cmd in
+                get) echo ${KV[$test]}                        ;;
+                del) unset KV[$test]                          ;;
+                type) echo $t                                 ;;
+                test) [[ $t == bool ]] && return ${KV[$test]} ;;
+            esac
             return $TRUE
         }
     done
@@ -119,8 +123,24 @@ conf() {
 }
 
 
-# CODES ------------------------------------------------------------------------
-declare -Ai RETCODES=(
+# CONFIG -----------------------------------------------------------------------
+pprint_conf() {
+    echo -n 'config is: ['
+    kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
+}
+
+conf() {
+    local cmd
+    [[ ! $1 =~ ^[^=]+=.*$ ]] && cmd=$1 && shift
+    if [[ $cmd == print ]]; then pprint_conf
+    else kv $cmd conf/$@
+    fi
+    return $?
+}
+
+
+# CODES AND RETURN CODES -------------------------------------------------------
+declare -Ai CODES=(
     # types
     [TRUE]=$TRUE
     [FALSE]=$FALSE
@@ -137,32 +157,34 @@ declare -Ai RETCODES=(
     [P_NOCMD]=13
     [P_NOTOK]=14
 
-    # playback control
+    # playback status and control
     [PC_PLAY]=20
-    [PC_STOP]=21
-    [PC_PAUSE]=22
-    [PC_CONT]=23
-    [PC_PREV]=24
-    [PC_NEXT]=25
-    [PC_R_UP]=26
-    [PC_R_DOWN]=27
-    [PC_R_UP2]=28
-    [PC_R_DOWN2]=29
-    [PC_MENU]=30
-    [PC_HELP]=31
+    [PC_PAUSE]=21
+    [PC_PP]=22
+    [PC_REPLAY]=23
+    [PC_STOP]=24
+    [PC_PREV]=25
+    [PC_NEXT]=26
+    [PC_LOOP]=27
+    [PC_R_UP]=28
+    [PC_R_DOWN]=29
+    [PC_R_UP2]=30
+    [PC_R_DOWN2]=31
+    [PC_MENU]=32
+    [PC_HELP]=33
 )
 
 retcode() {
     case "$1" in
-        val) echo ${RETCODES[$2]} ;;
-        key) for k in ${!RETCODES[@]}; do
-                (( RETCODES[$k] == $2 )) && {
+        val) echo ${CODES[$2]} ;;
+        key) for k in ${!CODES[@]}; do
+                (( CODES[$k] == $2 )) && {
                     echo $k
                     $FUNCNAME TRUE
                 }
              done
              $FUNCNAME FALSE      ;;
-        *) return ${RETCODES[$1]} ;;
+        *) return ${CODES[$1]} ;;
     esac
 }
 
@@ -201,7 +223,7 @@ header() {
 error() {
     local code=${1}
 
-    if [[ -v RETCODES[$code] ]]; then shift
+    if [[ -v CODES[$code] ]]; then shift
     else code=P_ERROR
     fi
 
@@ -472,7 +494,7 @@ manage() {
                     n) continue 3                       ;;
                     r) continue 2                       ;;
                     q) echo -e "Bye!\n"
-                       return ${RETCODES[P_SUCCESS]}     ;;
+                       return ${CODES[P_SUCCESS]}     ;;
                 esac
             done
         done
@@ -484,15 +506,15 @@ manage() {
 
 # PROGRAM ----------------------------------------------------------------------
 init() {
-    # config priority: defaults < config < env < cli
-    log "$(conf get script_title) $(conf get script_version) initializing config"
+    kv script/dir="$(dirname $(readlink -f "$0"))"
+    kv script/name="$(basename "$0")"
+    [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
+    kv script/title=bart
+    kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
 
-    # defaults
-    conf script_dir="$(dirname $(readlink -f "$0"))"
-    conf script_name="$(basename "$0")"
-    [[ -f "$(conf get script_dir)/VERSION" ]] && conf script_version=$(cat "$(conf get script_dir)/VERSION")
-    conf script_title=bart
-    conf script_env_prefix=$(conf get script_title | sed -r 's/./\U&/g')
+    log "$(kv get script/title) $(kv get script/version) initializing config"
+
+    # config priority: defaults < config < env < cli
     conf config=''
     conf logfile=''
     conf src=''
@@ -514,15 +536,15 @@ init() {
     conf minh=0
 
     local k kenv
-    for k in ${!CONFIG[@]}; do
-        [[ $k =~ ^[^=]+__script_[^=]+=.*$ ]] && continue
-        k=${k##*__} ; kenv=$(conf get script_env_prefix)_${k^^}
+    kv print conf | while read k; do
+        k="${k%=*}" k="${k##*/}" kenv=$(kv get script/env_prefix)_${k^^}
         [[ -v $kenv ]] && {
-            log "found option from environment: $k=${!kenv}"
             conf $k=${!kenv}
+            log "got option from environment: $k=${!kenv}"
         }
     done
-    log "done processing defaults and env, current config is $(conf print)"
+    log 'done processing defaults and env'
+    log "$(conf print)"
 
     [[ -f "$(conf get config)" ]] && {
         log "processing config file: $(conf get config)"
@@ -530,11 +552,13 @@ init() {
             [[ $line =~ ^script_.* ]] && continue
             k=$(conf get script_env_prefix)_${line%%=*}
             [[ ! -v "${k^^}" ]] && {
-                log "found option from config file: $line"
+                log "got option from config file: $line"
                 conf "$line"
             }
         done< <(cat "$(conf get config)")
-        log "done processing config file, current config is $(conf print)"
+
+        log 'done processing config file'
+        log "$(conf print)"
     }
 
     (( $# )) && {
@@ -594,18 +618,18 @@ init() {
 
                 [[ $token =~ ^-[[:alpha:]][^-]+$ ]] && {
                     token="-${token:2}"
-                    log "CLI found more short options to try: $token"
+                    log "CLI has more short options to try: $token"
                     skip=TRUE
                 }
             elif [[ $token =~ ^-[[:alpha:]][[:digit:]]+$ ]]; then
-                log "CLI short option: $token ($k=${token:2})"
+                log "CLI got short option: $token ($k=${token:2})"
                 conf "$k=${token:2}"
             elif [[ $token =~ ^-{1,2}[[:alnum:]]+$ ]]; then
-                log "CLI option with space: $token ($k=$1)"
+                log "CLI got option with space: $token ($k=$1)"
                 conf "$k=$1"
                 shift
             elif [[ $token =~ ^-{1,2}[[:alnum:]]+(=.+)$ ]]; then
-                log "CLI option with equal: $token ($k=${token##*=})"
+                log "CLI got option with equal: $token ($k=${token##*=})"
                 conf "$k=${token##*=}"
             fi
 
@@ -613,10 +637,12 @@ init() {
             retcode $skip || (( $# )) || break
         done
 
-        log "done processing CLI, current config is $(conf print)"
+        log 'done processing CLI'
+        log "$(conf print)"
     }
 
-    log "done processing configuration"
+    log 'done processing configuration'
+
     retcode P_SUCCESS
 }
 
