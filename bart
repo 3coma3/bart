@@ -76,7 +76,7 @@ print_arr() {
     done
 }
 
-print_kv_ns() {
+kv_printns() {
     local filter
 
     (( $# )) && {
@@ -88,12 +88,12 @@ print_kv_ns() {
     print_arr KV | sed -rn '\@^'$filter'@p' | sort -u
 }
 
-print_kv() {
+kv_print() {
     local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
     local n t k v
 
     IFS='|'
-    print_kv_ns $@ | sed -rn 's/^([^_]+)*__([^_]+)__([^=]+)=(.*)$/\1|\2|\3|\4/p' | while read n t k v; do
+    kv_printns $@ | sed -rn 's/^([^_]+)*__([^_]+)__([^=]+)=(.*)$/\1|\2|\3|\4/p' | while read n t k v; do
         echo -n "$n$k="
         case $t in
              str) echo "\"$v\""     ;;
@@ -112,7 +112,7 @@ kv() {
     fi
 
     [[ $cmd == print ]] && {
-        print_kv $@
+        kv_print $@
         return $?
     }
 
@@ -153,7 +153,7 @@ kv() {
         [[ -v KV[$test] ]] && {
             case $cmd in
                 get) echo "${KV[$test]}"                      ;;
-                del) unset KV[$test]                       ;;
+                del) unset KV[$test]                          ;;
                 type) echo $t                                 ;;
                 test) [[ $t == bool ]] && return ${KV[$test]} ;;
             esac
@@ -276,8 +276,7 @@ error() {
 
     (( $# )) && msg "$FUNCNAME: ${FUNCNAME[1]}: $@"
     log "$code $@"
-    retcode $code
-    exit
+    exit $(retcode val $code)
 }
 
 log() {
@@ -559,7 +558,7 @@ manage() {
                     n) continue 3                       ;;
                     r) continue 2                       ;;
                     q) echo -e "Bye!\n"
-                       return ${CODES[P_SUCCESS]}     ;;
+                       return ${CODES[P_SUCCESS]}       ;;
                 esac
             done
         done
@@ -601,13 +600,13 @@ init() {
     conf minh=0
 
     local k kenv
-    kv print conf | while read k; do
+    while read k; do
         k="${k%=*}" k="${k##*/}" kenv=$(kv get script/env_prefix)_${k^^}
         [[ -v $kenv ]] && {
+            echo "got option from environment: $k=${!kenv}" >> log
             conf $k=${!kenv}
-            log "got option from environment: $k=${!kenv}"
         }
-    done
+    done< <(kv print conf)
     log 'done processing defaults and env'
     log "$(conf print)"
 
@@ -634,7 +633,7 @@ init() {
         case $command in
             @($allowed_commands))
                 log "CLI got command: $command"
-                conf script_command=$command  ;;
+                kv script/command=$command  ;;
             *) error P_NOCMD "unrecognized command $command"   ;;
         esac
 
@@ -716,4 +715,4 @@ init() {
 
 export BASH_LOADABLES_PATH=$(pkg-config bash --variable=loadablesdir &2> /dev/null )
 [[ -n BASH_LOADABLES_PATH ]] && enable -f sleep sleep
-init $@ && $(conf get script_command)
+init $@ && $(kv get script/command)
