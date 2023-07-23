@@ -2,11 +2,12 @@
 
 # TODO:
 # ------------------------------------------------------------------------------
+# - add support for specifying file extensions
 # - end of list in all modes is controlled by "loop" flag/playback mode/control
 # - PC_REPLAY control
 # - try to have a way to specify / know of logfiles as early as possible, to log
 #   initialization before env (ideally right at the start)
-# - allow FALSE flags from CLI
+# - allow FALSE flags from CLI (-no prefix)
 # - add minfilesize maxfilesize
 #
 # - manage()
@@ -14,6 +15,9 @@
 #       add option for flat/preserve structure
 #       honor all controls from view_file() and use $playback
 #       cleanup / simplify
+#       think about manage() being essentially play() with a mandatory menu instead of an optional pause...
+#       add move operation
+#       allow entering dst from the menu in case it wasn't passed or configured
 #
 # - add
 #       --help
@@ -51,6 +55,7 @@
 #       integrate view/manage modes
 #       full TUI
 #       file explorer
+
 
 
 # BASICS -----------------------------------------------------------------------
