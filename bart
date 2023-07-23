@@ -111,7 +111,7 @@ kv() {
     local cmd=test line ns k v test
 
     if [[ $1 =~ ^[^=]+=.*$ ]]; then cmd=set
-    elif [[ $1 =~ ^(get|del(ns)*|type|print)$ ]]; then cmd=$1; shift
+    elif [[ $1 =~ ^(get|del(ns)*|type|key|print)$ ]]; then cmd=$1; shift
     else cmd=test
     fi
 
@@ -120,9 +120,10 @@ kv() {
         return $?
     }
 
+    line="$@" ns=${line%%=*}
+
     # slash at initial or final position, duplicate slash, invalid characters
     local valid_key_chars='a-zA-Z0-9_/'
-    line="$@" ns=${line%%=*}
     [[ "$ns" =~ ^(.*[^$valid_key_chars].*|/.*|[^=/]+/|[^=/]+//.*)(=.*)*$ ]] && {
         error T_KEYERR "bad namespace/key specification: '$ns'"
     }
@@ -131,6 +132,17 @@ kv() {
     else k="$ns" ns=''                                          # root ns (no slashes)
     fi
     ns=${ns:+$ns/}
+
+    [[ $cmd == key ]] && {
+        v="${line#*=}"
+        while read line; do
+            [[ "$v" == "${line#*=}" ]] && {
+                echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
+                return $TRUE
+            }
+        done< <(kv_printns $ns$k)
+        return $FALSE
+    }
 
     [[ $cmd == set ]] && {
         ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
@@ -148,7 +160,7 @@ kv() {
         while read line; do
             test="${line%%=*}"
             [[ -v KV[$test] ]] && unset KV[$test]
-        done< <(print_kv_ns $ns$k)
+        done< <(kv_printns $ns$k)
         return $TRUE
     }
 
