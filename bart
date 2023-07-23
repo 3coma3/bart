@@ -2,22 +2,36 @@
 
 # TODO:
 # ------------------------------------------------------------------------------
+# - move codes to kv
+# - implement kv_t and move types there (should be faster/simpler code)
+# - think about manage() being essentially play() with a menu
+# - add print config
+# - use exit and return instead of retcode where it's clearer/better
+# - allow FALSE flags from CLI (-no prefix)
+# - verbosity levels
+# - add auto version
+# - end of list is controlled by "loop" flag/playback mode/control
 # - add support for specifying file extensions
-# - end of list in all modes is controlled by "loop" flag/playback mode/control
-# - PC_REPLAY control
+# - add include/exclude filters
+# - add minfilesize maxfilesize
 # - try to have a way to specify / know of logfiles as early as possible, to log
 #   initialization before env (ideally right at the start)
-# - allow FALSE flags from CLI (-no prefix)
-# - add minfilesize maxfilesize
 #
-# - manage()
+# - implemented in native_throttle:
+#   PC_REPLAY control
+#
+# - view/manage
 #       fix symlink path generation in dst
 #       add option for flat/preserve structure
 #       honor all controls from view_file() and use $playback
 #       cleanup / simplify
-#       think about manage() being essentially play() with a mandatory menu instead of an optional pause...
 #       add move operation
 #       allow entering dst from the menu in case it wasn't passed or configured
+#       online help (? option)
+#       online menu (m option)
+#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, file info
+#       mini help (press h)
+#       status line/box (press l)
 #
 # - add
 #       --help
@@ -25,20 +39,7 @@
 #       regex/glob filters and listings
 #
 # - write initial README
-# - use exit and return instead of retcode where it's clearer/better
-# - verbosity levels
-# - add dev branch
-# - add auto version
-# ------------------------------------------------------------------------------
-# - view() and manage()
-#       online help (? option)
-#       online menu (m option)
-#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, file info
-#
-# - view_file()
-#       mini help (press h)
-#       status line/box (press l)
-# ------------------------------------------------------------------------------
+ ------------------------------------------------------------------------------
 # - chores
 #       modularize and source/call only what's needed
 #       full doc
@@ -176,9 +177,7 @@ pprint_conf() {
 conf() {
     local cmd
 
-    [[ $1 =~ ^(get|del|type|print)$ ]] && {
-        cmd=$1; shift
-    }
+    [[ $1 =~ ^(get|del|type|print)$ ]] && cmd=$1 && shift
 
     if [[ $cmd == print ]]; then pprint_conf
     else kv $cmd conf/$@
