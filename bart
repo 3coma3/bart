@@ -717,17 +717,17 @@ init_config() {
 }
 
 init() {
-    local initfunc
+    local f initqueue
 
     while (( $# )); do
-        initfunc=init_${1}
-        [[ $(type -t ${initfunc}) != function || "$(kv get script/initqueue)" =~ (^| )"$initfunc"( |$) ]] && break
-        kv script/initqueue="$(kv get script/initqueue) $initfunc"
+        f=init_${1}
+        [[ $(type -t $f) != function || "$initqueue" =~ (^| )"$f"( |$) ]] && break
+        initqueue="$initqueue $f"
         shift
     done
 
-    for initfunc in $(kv get script/initqueue); do
-       $initfunc $@ || return $?
+    for f in $initqueue; do
+       $f $@ || return $?
     done
 }
 
