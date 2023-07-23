@@ -73,45 +73,84 @@ print_arr() {
     done
 }
 
+print_kv_ns() {
+    local filter
+
+    (( $# )) && {
+        if [[ $1 =~ .*/.*  ]]; then filter="${1%/*}/(__[^_]+__)*${1##*/}[/=]"
+        else filter="(__[^_]+__)*$1[/=]"
+        fi
+    }
+
+    print_arr KV | sed -rn '\@^'$filter'@p' | sort -u
+}
+
 print_kv() {
     local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
-    local ns="$1${1:+\/}" n k v
+    local n t k v
 
-    print_arr KV | sed -rn "/^${ns}.*$/ s/^([^_]+)__[^_]+__([^=]+)=(.*)/\1 \2 \3/p" | sort | while read n k v; do
-        echo $n$k=$(if [[ $(kv type "$n$k") == bool ]]; then echo ${TF[$v]}; else echo "$v"; fi)
+    IFS='|'
+    print_kv_ns $@ | sed -rn 's/^([^_]+)*__([^_]+)__([^=]+)=(.*)$/\1|\2|\3|\4/p' | while read n t k v; do
+        echo -n "$n$k="
+        case $t in
+             str) echo "\"$v\""     ;;
+             int) echo $v           ;;
+            bool) echo ${TF[$v]}    ;;
+        esac
     done
 }
 
 kv() {
-    # TODO: add (recursive) ns deletion
     local cmd=test line ns k v test
 
     if [[ $1 =~ ^[^=]+=.*$ ]]; then cmd=set
-    elif [[ $1 =~ ^(get|del|type|print)$ ]]; then cmd=$1; shift
+    elif [[ $1 =~ ^(get|del(ns)*|type|print)$ ]]; then cmd=$1; shift
+    else cmd=test
     fi
 
-    [[ $cmd == "print" ]] && {
-        print_kv "$1"
+    [[ $cmd == print ]] && {
+        print_kv $@
         return $?
     }
 
-    line="$@" v="${line#*=}" k=${line%%=*} ns="${k%/*}" k="${k##*/}"
+    # slash at initial or final position, duplicate slash, invalid characters
+    local valid_key_chars='a-zA-Z0-9_/'
+    line="$@" ns=${line%%=*}
+    [[ "$ns" =~ ^(.*[^$valid_key_chars].*|/.*|[^=/]+/|[^=/]+//.*)(=.*)*$ ]] && {
+        error T_KEYERR "bad namespace/key specification: '$ns'"
+    }
 
-    [[ $cmd == "set" ]] && {
+    if [[ $ns =~ .*/.*  ]]; then k="${ns##*/}" ns="${ns%/*}"    # normal ns
+    else k="$ns" ns=''                                          # root ns (no slashes)
+    fi
+    ns=${ns:+$ns/}
+
+    [[ $cmd == set ]] && {
+        ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
+
+        v="${line#*=}"
         case "$v" in
-             TRUE|FALSE) KV[${ns}/__bool__${k}]=${!v} ;;
-            ''|*[!0-9]*) KV[${ns}/__str__${k}]="$v"   ;;
-                      *) KV[${ns}/__int__${k}]=$v     ;;
+             TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
+            ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"   ;;
+                      *) KV[${ns}__int__${k}]=$v     ;;
         esac
         return $TRUE
     }
 
+    [[ $cmd == delns ]] && {
+        while read line; do
+            test="${line%%=*}"
+            [[ -v KV[$test] ]] && unset KV[$test]
+        done< <(print_kv_ns $ns$k)
+        return $TRUE
+    }
+
     for t in bool int str; do
-        test="${ns}/__${t}__${k}"
+        test="${ns}__${t}__${k}"
         [[ -v KV[$test] ]] && {
             case $cmd in
-                get) echo ${KV[$test]}                        ;;
-                del) unset KV[$test]                          ;;
+                get) echo "${KV[$test]}"                      ;;
+                del) unset KV[$test]                       ;;
                 type) echo $t                                 ;;
                 test) [[ $t == bool ]] && return ${KV[$test]} ;;
             esac
@@ -131,10 +170,15 @@ pprint_conf() {
 
 conf() {
     local cmd
-    [[ ! $1 =~ ^[^=]+=.*$ ]] && cmd=$1 && shift
+
+    [[ $1 =~ ^(get|del|type|print)$ ]] && {
+        cmd=$1; shift
+    }
+
     if [[ $cmd == print ]]; then pprint_conf
     else kv $cmd conf/$@
     fi
+
     return $?
 }
 
@@ -148,6 +192,7 @@ declare -Ai CODES=(
     [T_BOOL]=4
     [T_INT]=5
     [T_STR]=6
+    [T_KEYERR]=6
 
     # process result
     [P_SUCCESS]=$TRUE
