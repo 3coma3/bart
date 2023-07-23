@@ -2,58 +2,9 @@
 
 # TODO:
 # ------------------------------------------------------------------------------
-# - end of list in all modes is controlled by "loop" flag/playback mode/control
-# - try to have a way to specify / know of logfiles as early as possible, to log
-#   initialization before env (ideally right at the start)
-# - allow FALSE flags from CLI (-no prefix)
-# - add minfilesize maxfilesize
 # - use playback_control() in foreground
-#
-# - manage()
-#       fix symlink path generation in dst
-#       add option for flat/preserve structure
-#       honor all controls from view_file() and use $playback
-#       cleanup / simplify
-#       think about manage() being essentially play() with a mandatory menu instead of an optional pause...
-#       add move operation
-#       allow entering dst from the menu in case it wasn't passed or configured
-#
-# - add
-#       --help
-#       options for global/per file rate change effects
-#       regex/glob filters and listings
-#
-# - write initial README
-# - use exit and return instead of retcode where it's clearer/better
-# - verbosity levels
-# - add dev branch
-# - add auto version
-# ------------------------------------------------------------------------------
-# - view() and manage()
-#       online help (? option)
-#       online menu (m option)
-#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, file info
-#
-# - view_file()
-#       mini help (press h)
-#       status line/box (press l)
-# ------------------------------------------------------------------------------
-# - chores
-#       modularize and source/call only what's needed
-#       full doc
-#
-# - features
-#       --minwidth, --minheight, --maxwidth, --maxheight (in view mode, only with type dir)
-#       --auto-max (in view mode, only with type dir)
-#       --auto-viewport
-#       format exports
-#       remote control
-#       URL view / browse / crawl / manage
-#
-# - UI
-#       integrate view/manage modes
-#       full TUI
-#       file explorer
+# - preload entire file in memory, use optional double buffer
+# - use coproc to receive messages from subshell
 
 
 # BASICS -----------------------------------------------------------------------
