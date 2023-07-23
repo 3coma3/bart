@@ -272,7 +272,7 @@ error() {
     else code=P_ERROR
     fi
 
-    (( $# )) && msg "$FUNCNAME: $@"
+    (( $# )) && msg "$FUNCNAME: ${FUNCNAME[1]}: $@"
     log "$code $@"
     retcode $code
     exit
