@@ -613,7 +613,7 @@ init() {
         case $command in
             @($allowed_commands))
                 log "CLI got command: $command"
-                conf script_command=$command  ;;
+                kv script/command=$command  ;;
             *) error P_NOCMD "unrecognized command $command"   ;;
         esac
 
@@ -690,4 +690,4 @@ init() {
     retcode P_SUCCESS
 }
 
-init $@ && $(conf get script_command)
+init $@ && $(kv get script/command)
