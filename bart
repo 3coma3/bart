@@ -2,44 +2,46 @@
 
 # TODO:
 # ------------------------------------------------------------------------------
-# - move codes to kv
-# - implement kv_t and move types there (should be faster/simpler code)
-# - think about manage() being essentially play() with a menu
-# - add print config
+# version 1
+#
+# - implement kv_t and move types there (should be faster/simpler code, plus it
+#   can handle arbitrary attrs like +r, etc)
 # - use exit and return instead of retcode where it's clearer/better
 # - allow FALSE flags from CLI (-no prefix)
-# - verbosity levels
-# - add auto version
-# - end of list is controlled by "loop" flag/playback mode/control
-# - add support for specifying file extensions
-# - add include/exclude filters
-# - add minfilesize maxfilesize
-# - try to have a way to specify / know of logfiles as early as possible, to log
-#   initialization before env (ideally right at the start)
-#
+# - manage() is essentially play() with a menu, so they should be one function
+
 # - implemented in native_throttle:
 #   PC_REPLAY control
 #
-# - view/manage
+# - complete management and UI
 #       fix symlink path generation in dst
 #       add option for flat/preserve structure
-#       honor all controls from view_file() and use $playback
 #       cleanup / simplify
 #       add move operation
-#       allow entering dst from the menu in case it wasn't passed or configured
-#       online help (? option)
-#       online menu (m option)
+#       online menu (press m, m option in prompt)
 #           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, file info
-#       mini help (press h)
+#       mini help (press ?, ? option in prompt)
+#       allow entering dst from menu in case it wasn't passed or configured
 #       status line/box (press l)
 #
 # - add
-#       --help
-#       options for global/per file rate change effects
+#       verbosity levels
+#       end of list controlled by "loop" flag/playback mode/control
+#       support for specifying file extensions
 #       regex/glob filters and listings
+#       minfilesize maxfilesize
+#       --help or help command
+#       options for global/per file rate change effects
+#
+# - try to have a way to specify / know of logfiles as early as possible, to log
+#   initialization before env (ideally right at the start)
+# - auto version (from btrfs_backup)
 #
 # - write initial README
- ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+# version 2
+#
 # - chores
 #       modularize and source/call only what's needed
 #       full doc
@@ -56,7 +58,6 @@
 #       integrate view/manage modes
 #       full TUI
 #       file explorer
-
 
 
 # BASICS -----------------------------------------------------------------------
