@@ -580,13 +580,13 @@ init() {
     conf minh=0
 
     local k kenv
-    kv print conf | while read k; do
+    while read k; do
         k="${k%=*}" k="${k##*/}" kenv=$(kv get script/env_prefix)_${k^^}
         [[ -v $kenv ]] && {
+            echo "got option from environment: $k=${!kenv}" >> log
             conf $k=${!kenv}
-            log "got option from environment: $k=${!kenv}"
         }
-    done
+    done< <(kv print conf)
     log 'done processing defaults and env'
     log "$(conf print)"
 
