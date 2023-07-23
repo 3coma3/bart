@@ -4,47 +4,56 @@
 # ------------------------------------------------------------------------------
 # version 1
 #
-# - implement kv_t and move types there (should be faster/simpler code, plus it
-#   can handle arbitrary attrs like +r, etc)
-# - use exit and return instead of retcode where it's clearer/better
-# - allow FALSE flags from CLI (-no prefix)
-# - manage() is essentially play() with a menu, so they should be one function
-
-# - implemented in native_throttle:
-#   PC_REPLAY control
-#
-# - complete management and UI
+# - features
+#       manage() is essentially play() with a menu, so they should be one function
 #       fix symlink path generation in dst
-#       add option for flat/preserve structure
-#       cleanup / simplify
-#       add move operation
-#       online menu (press m, m option in prompt)
-#           rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, file info
-#       mini help (press ?, ? option in prompt)
+#       cleanup / simplify management
+#
 #       allow entering dst from menu in case it wasn't passed or configured
-#       status line/box (press l)
+#       add move operation
 #
-# - add
-#       verbosity levels
 #       end of list controlled by "loop" flag/playback mode/control
-#       support for specifying file extensions
-#       regex/glob filters and listings
-#       minfilesize maxfilesize
-#       --help or help command
+#       add option for flat/preserve structure
 #       options for global/per file rate change effects
+#       minfilesize maxfilesize
 #
-# - try to have a way to specify / know of logfiles as early as possible, to log
-#   initialization before env (ideally right at the start)
-# - auto version (from btrfs_backup)
+#       support for specifying file extensions
+#       regex/glob filters, listings and information
 #
-# - write initial README
+#       --help or help command
+#           complete information under script ns (homepage, etc)
+#
+#       implemented in native_throttle:
+#           PC_REPLAY control
+#
+# - plumbing
+#       use exit and return instead of retcode where it's clearer/better
+#       allow FALSE flags from CLI (-no prefix)
+#       consider adding cond() (custom ternary, from btrfs-backup)
+#       try to have a way to specify / know of logfiles as early as possible, to log
+#       initialization before env (ideally right at the start)
+#       verbosity levels, complete logging
+#       implement kv_t and move types there (should be faster/simpler code, plus it
+#       can handle arbitrary attrs like +r, etc)
+#
+# - UI
+#       online menu (press m or have an option to display after each file)
+#           operations
+#               playback control, move/copy/link/delete source/delete destination, file info, minihelp
+#           options
+#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
+#       status line/box (press l or have an option to default it to on/off)
+#       auto up/downgrade to text/curses/multiplexers, detecting backends
+#
+# - pm
+#       write initial README
+#       auto version (from btrfs_backup)
 #
 # ------------------------------------------------------------------------------
 # version 2
 #
-# - chores
+# - plumbing
 #       modularize and source/call only what's needed
-#       full doc
 #
 # - features
 #       --minwidth, --minheight, --maxwidth, --maxheight (in view mode, only with type dir)
@@ -55,9 +64,11 @@
 #       URL view / browse / crawl / manage
 #
 # - UI
-#       integrate view/manage modes
 #       full TUI
 #       file explorer
+#
+# - pm
+#       full doc
 
 
 # BASICS -----------------------------------------------------------------------
@@ -191,23 +202,6 @@ kv_load_seq() {
 }
 
 
-# CONFIG -----------------------------------------------------------------------
-pprint_conf() {
-    echo -n 'config is: ['
-    kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
-}
-
-conf() {
-    local cmd
-
-    [[ $1 =~ ^(get|del|type|print)$ ]] && cmd=$1 && shift
-
-    if [[ $cmd == print ]]; then pprint_conf
-    else kv $cmd conf/$@
-    fi
-}
-
-
 # CODES AND RETURN CODES -------------------------------------------------------
 code() {
     local cmd
@@ -223,6 +217,23 @@ code() {
 
 noop() {
     code p/NOOP
+}
+
+
+# CONFIG -----------------------------------------------------------------------
+pprint_conf() {
+    echo -n 'config is: ['
+    kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
+}
+
+conf() {
+    local cmd
+
+    [[ $1 =~ ^(get|del|type|print)$ ]] && cmd=$1 && shift
+
+    if [[ $cmd == print ]]; then pprint_conf
+    else kv $cmd conf/$@
+    fi
 }
 
 
