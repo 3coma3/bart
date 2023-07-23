@@ -392,7 +392,9 @@ view_file() {
     return $(code get $playback)
 }
 
-view() {
+
+# COMMANDS ---------------------------------------------------------------------
+cmd_view() {
     local playback control sleeper
 
     local -a playlist
@@ -458,7 +460,7 @@ view() {
     done
 }
 
-manage() {
+cmd_manage() {
     local base="$(basename "$(readlink -f "$(conf get src)")")"
     local file symlink symlink_dir symlink_exists prompt choice
 
@@ -537,15 +539,37 @@ manage() {
     done
 }
 
+cmd_config() {
+    kv print conf | sed -r 's|^conf/||'
+}
 
-# PROGRAM ----------------------------------------------------------------------
-init() {
-    kv script/dir="$(dirname $(readlink -f "$0"))"
+
+# INITIALIZATION ---------------------------------------------------------------
+init_codes() {
+    # types
+    kv codes/t/TRUE=TRUE
+    kv codes/t/FALSE=FALSE
+    kv_load_seq codes/t 2 UNDEF BOOL INT STR ENOKEY
+
+    # process status
+    kv codes/p/SUCCESS=TRUE
+    kv codes/p/ERROR=FALSE
+    kv_load_seq codes/p 10 NOOP ABORT ENO{CMD,TOK}
+
+    # playback control
+    kv_load_seq codes/pc 20 P{LAY,AUSE,P,REV} NEXT LOOP R_{UP,DOWN}{,2} STOP HELP MENU
+}
+
+init_script() {
+    kv script/pid=$$
     kv script/name="$(basename "$0")"
+    kv script/dir="$(dirname $(readlink -f "$0"))"
     [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
     kv script/title=bart
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
+}
 
+init_config() {
     log "$(kv get script/title) $(kv get script/version) initializing config"
 
     # config priority: defaults < config < env < cli
@@ -599,19 +623,20 @@ init() {
         log "processing CLI: $@"
 
         # cli
-        local command=$1 allowed_commands="view?(_file)|manage"
-        case $command in
-            @($allowed_commands))
-                log "CLI got command: $command"
-                kv script/command=$command  ;;
-            *) error P_NOCMD "unrecognized command $command"   ;;
-        esac
+        local command=$1
+        [[ $(type -t cmd_$command) == function ]] || error NOCMD "unrecognized command $command"
+
+        log "CLI got command: $command"
+        kv script/command=$command
 
         shift
 
         local token k skip=FALSE src_cli=FALSE dst_cli=FALSE
         while :; do
-            (! retcode $skip) && token="$1" && shift
+            code t/${skip} || {
+                token="$1"
+                shift
+            }
             skip=FALSE
 
             case "$token" in
@@ -631,12 +656,12 @@ init() {
                      -@(h|-minheight)*) k=min_height            ;;
                      -@(H|-maxheight)*) k=max_height            ;;
                        -@(L|-logfile)*) k=logfile               ;;
-                                 !(-*)) if ! retcode $src_cli; then
+                                 !(-*)) if ! code t_${src_cli}; then
                                             log "CLI got src: $token"
                                             src_cli=TRUE
                                             conf src="$token"
                                             k=src
-                                        elif ! retcode $dst_cli; then
+                                        elif ! code t_${dst_cli}; then
                                             log "CLI got dst: $token"
                                             dst_cli=TRUE
                                             conf dst="$token"
@@ -644,7 +669,7 @@ init() {
                                         fi                      ;;
             esac
 
-            [[ -v k ]] || error P_NOTOK "unrecognized token $token"
+            [[ -v k ]] || error NOTOK "unrecognized token $token"
 
             if [[ $k =~ ^[^=]+=(TRUE|FALSE)$ ]]; then
                 log "CLI got flag: $k"
@@ -668,7 +693,7 @@ init() {
             fi
 
             unset k
-            retcode $skip || (( $# )) || break
+            code t/${skip} || (( $# )) || break
         done
 
         log 'done processing CLI'
@@ -677,7 +702,24 @@ init() {
 
     log 'done processing configuration'
 
-    retcode P_SUCCESS
+    code p/SUCCESS
 }
 
-init $@ && $(kv get script/command)
+init() {
+    local initfunc
+
+    while (( $# )); do
+        initfunc=init_${1}
+        [[ $(type -t ${initfunc}) != function || "$(kv get script/initqueue)" =~ (^| )"$initfunc"( |$) ]] && break
+        kv script/initqueue="$(kv get script/initqueue) $initfunc"
+        shift
+    done
+
+    for initfunc in $(kv get script/initqueue); do
+       $initfunc $@ || return $?
+    done
+}
+
+
+# PROGRAM ----------------------------------------------------------------------
+init codes script config $@ && cmd_$(kv get script/command)
