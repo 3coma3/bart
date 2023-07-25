@@ -4,11 +4,19 @@
 # ------------------------------------------------------------------------------
 # version 1
 #
-# - features
+# - WIP
+#       the view and pause loops are going to merge with playback
+#       control, since they are waiting for some pid and doing the same, pids
+#       may be passed from play() and that's it
+#
+#       playback control mappings could end up also in kv
+#
 #       manage() is essentially play() with a menu, so they should be one function
+#
 #       fix symlink path generation in dst
 #       cleanup / simplify management
 #
+# - features
 #       allow entering dst from menu in case it wasn't passed or configured
 #       add move operation
 #
