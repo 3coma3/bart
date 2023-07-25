@@ -397,6 +397,7 @@ view_loop() {
                     log "playback changed to $playback"
                 }
                 break                                       ;;
+            *) continue                                         ;;
         esac
     done< <(playback_control)
 
