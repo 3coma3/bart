@@ -366,7 +366,7 @@ view_loop() {
 
     trap noop INT
 
-    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 | pv --quiet -C -B32 --rate-limit $(conf get rate) } & reader=$!
+    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 | pv --quiet -C -B32 --rate-limit $(conf get rate) ;} & viewer=$!
 
     while kill -0 "$viewer" &> /dev/null; do
         unset control
@@ -399,7 +399,6 @@ view_loop() {
     done< <(playback_control)
 
     kill $viewer &> /dev/null
-    rm $rate_control
 
     trap - INT
 
