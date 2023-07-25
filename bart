@@ -357,19 +357,18 @@ change_rate() {
 }
 
 view_loop() {
-    local file="${1:-$(conf get src)}" control reader writer rate_control="$(new_pipe)"
+    local file="${1:-$(conf get src)}" control viewer
 
     conf quiet || echo -e "\nFile: $file"
     log "viewing file: $file"
 
     conf "stty=$(stty -g)"
 
-    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 > "$rate_control" ;} & writer=$!
-    pv --quiet -C -B32 --rate-limit $(conf get rate) < "$rate_control" & reader=$!
-
     trap noop INT
 
-    while kill -0 "$reader" &> /dev/null; do
+    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 | pv --quiet -C -B32 --rate-limit $(conf get rate) } & reader=$!
+
+    while kill -0 "$viewer" &> /dev/null; do
         unset control
         read -t0.5 control
         [[ ! $control == NOOP ]] && log "got playback control $control"
@@ -399,10 +398,10 @@ view_loop() {
         esac
     done< <(playback_control)
 
-    trap - INT
-
-    kill $writer $reader &> /dev/null
+    kill $viewer &> /dev/null
     rm $rate_control
+
+    trap - INT
 
     stty "$(conf get stty)"
     echo -e '\033[0m'
@@ -413,7 +412,7 @@ pause_loop() {
 
     log "enter pause: $(conf get pause) seconds"
 
-    ( sleep $(( $(conf get pause) )) ) & sleeper=$!
+    sleep $(( $(conf get pause) )) & sleeper=$!
 
     while kill -0 $sleeper &> /dev/null; do
         unset control
@@ -471,7 +470,7 @@ cmd_view() {
 
         [[ $(kv get pc/status) =~ ^(PLAY|NEXT|PREV)$ ]] && view_loop "$(readlink -f "${playlist[$cursor]}")"
 
-        # last file in playlist/count skips pause, as well as next/prev
+        # last file skips pause, as well as status other than play/pause
         (( $(conf get pause) )) && ! at_end $cursor $total &&
         [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && pause_loop
 
