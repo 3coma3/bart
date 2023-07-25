@@ -424,18 +424,18 @@ pause_loop() {
             PP) if [[ $(kv get pc/status) == PLAY ]]; then kv pc/status=PAUSE
                 elif [[ $(kv get pc/status) == PAUSE ]]; then kv pc/status=PLAY
                 fi
-                log "playback changed to $playback"
-                break                               ;;
+                log "playback changed to $(kv get pc/status)"
+                break                                           ;;
             R_@(UP|DOWN)?(2))
                 change_rate $control                ;;
             @(NEXT|PREV|HELP|MENU))
                 kv pc/status=$control
-                log "playback changed to $playback"
-                break                               ;;
+                log "playback changed to $(kv get pc/status)"
+                break                                           ;;
             STOP)
                 [[ $(kv get pc/status) == PLAY ]] && {
                     kv pc/status=STOP
-                    log "playback changed to $playback"
+                    log "playback changed to $(kv get pc/status)"
                 }
                 break                               ;;
             *) continue                             ;;
