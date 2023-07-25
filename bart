@@ -383,20 +383,20 @@ view_loop() {
                     kv pc/status=PLAY
                     pv -R $reader --rate-limit $(conf get rate)
                 fi
-                log "playback changed to $playback"         ;;
+                log "playback changed to $(kv get pc/status)"   ;;
             R_@(UP|DOWN)?(2))
                 change_rate $control
-                pv -R $reader --rate-limit $(conf get rate) ;;
+                pv -R $reader --rate-limit $(conf get rate)     ;;
             @(NEXT|PREV|HELP|MENU))
                 kv pc/status=$control
-                log "playback changed to $playback"
-                break                                       ;;
+                log "playback changed to $(kv get pc/status)"
+                break                                           ;;
             STOP)
                 [[ $(kv get pc/status) == PLAY ]] && {
                     kv pc/status=STOP
-                    log "playback changed to $playback"
+                    log "playback changed to $(kv get pc/status)"
                 }
-                break                                       ;;
+                break                                           ;;
             *) continue                                         ;;
         esac
     done< <(playback_control)
@@ -407,12 +407,14 @@ view_loop() {
 
     stty "$(conf get stty)"
     echo -e '\033[0m'
+
+    log "end view"
 }
 
 pause_loop() {
     local control sleeper
 
-    log "enter pause: $(conf get pause) seconds"
+    log "pausing $(conf get pause) seconds"
 
     sleep $(( $(conf get pause) )) & sleeper=$!
 
@@ -428,7 +430,7 @@ pause_loop() {
                 log "playback changed to $(kv get pc/status)"
                 break                                           ;;
             R_@(UP|DOWN)?(2))
-                change_rate $control                ;;
+                change_rate $control                            ;;
             @(NEXT|PREV|HELP|MENU))
                 kv pc/status=$control
                 log "playback changed to $(kv get pc/status)"
@@ -438,12 +440,12 @@ pause_loop() {
                     kv pc/status=STOP
                     log "playback changed to $(kv get pc/status)"
                 }
-                break                               ;;
-            *) continue                             ;;
+                break                                           ;;
+            *) continue                                         ;;
         esac
     done< <(playback_control)
 
-    log "exit pause"
+    log "end pause"
 }
 
 at_end() {
@@ -462,7 +464,7 @@ cmd_view() {
 
     (( $(conf get count) )) || conf count=$total
 
-    log "$(conf get count) images (max $total) from $(conf get src)"
+    log "playing $(conf get count) images (max $total) from $(conf get src)"
 
     kv pc/status=PLAY
 
@@ -471,10 +473,12 @@ cmd_view() {
         log "playlist cursor: $cursor"
 
         [[ $(kv get pc/status) =~ ^(PLAY|NEXT|PREV)$ ]] && view_loop "$(readlink -f "${playlist[$cursor]}")"
+        log "playback is $(kv get pc/status)"
 
         # last file skips pause, as well as status other than play/pause
         (( $(conf get pause) )) && ! at_end $cursor $total &&
         [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && pause_loop
+        log "playback is $(kv get pc/status)"
 
         case $(kv get pc/status) in
             STOP) break                             ;;
@@ -487,6 +491,7 @@ cmd_view() {
     done
 
     kv pc/status=STOP
+    log "end playback"
 }
 
 cmd_manage() {
