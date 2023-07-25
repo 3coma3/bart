@@ -421,52 +421,6 @@ pause_loop() {
         [[ ! $control == NOOP ]] && log "got playback control $control"
 
         case $control in
-            PP) if [[ $(kv get pc/status) == PLAY ]]; then
-                    kv pc/status=PAUSE
-                    pv -R $reader --rate-limit 1
-                elif [[ $(kv get pc/status) == PAUSE ]]; then
-                    kv pc/status=PLAY
-                    pv -R $reader --rate-limit $(conf get rate)
-                fi
-                log "playback changed to $playback"         ;;
-            R_@(UP|DOWN)?(2))
-                change_rate $control
-                pv -R $reader --rate-limit $(conf get rate) ;;
-            @(NEXT|PREV|HELP|MENU))
-                kv pc/status=$control
-                log "playback changed to $playback"
-                break                                       ;;
-            STOP)
-                [[ $(kv get pc/status) == PLAY ]] && {
-                    kv pc/status=STOP
-                    log "playback changed to $playback"
-                }
-                break                                       ;;
-        esac
-    done< <(playback_control)
-
-    trap - INT
-
-    kill $writer $reader &> /dev/null
-    rm $rate_control
-
-    stty "$(conf get stty)"
-    echo -e '\033[0m'
-}
-
-pause_loop() {
-    local control sleeper
-
-    log "enter pause: $(conf get pause) seconds"
-
-    ( sleep $(( $(conf get pause) )) ) & sleeper=$!
-
-    while kill -0 $sleeper &> /dev/null; do
-        unset control
-        read -t0.5 control
-        [[ ! $control == NOOP ]] && log "got playback control $control"
-
-        case $control in
             PP) if [[ $(kv get pc/status) == PLAY ]]; then kv pc/status=PAUSE
                 elif [[ $(kv get pc/status) == PAUSE ]]; then kv pc/status=PLAY
                 fi
