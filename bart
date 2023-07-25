@@ -362,6 +362,8 @@ view_loop() {
     conf quiet || echo -e "\nFile: $file"
     log "viewing file: $file"
 
+    kv pc/status=PLAY
+
     conf "stty=$(stty -g)"
 
     trap noop INT
