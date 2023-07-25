@@ -310,7 +310,7 @@ new_pipe() {
 # PLAYBACK ---------------------------------------------------------------------
 playback_control() {
     local -A control_mappings=(
-        [_]=PLAY     # this is a space
+        [_]=PP      # this is a space
         [h]=HELP
         [m]=MENU
         [n]=NEXT
@@ -330,7 +330,7 @@ playback_control() {
         clear_stdin
 
         key="${key// /_}"
-        if [[ $key =~ [${controls// /}] ]]; then echo pc/${control_mappings[$key]}
+        if [[ $key =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
         else echo NOOP
         fi
     done
@@ -339,54 +339,54 @@ playback_control() {
 change_rate() {
     local rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
-           pc/R_UP) (( rate += small )) ;;
-          pc/R_UP2) (( rate += big ))   ;;
-         pc/R_DOWN) (( rate -= small )) ;;
-        pc/R_DOWN2) (( rate -= big ))   ;;
+           R_UP) (( rate += small )) ;;
+          R_UP2) (( rate += big ))   ;;
+         R_DOWN) (( rate -= small )) ;;
+        R_DOWN2) (( rate -= big ))   ;;
     esac
     conf rate=$(( rate < 1 ? 1 : rate ))
     log "updated rate to $(conf get rate)"
 }
 
-view_file() {
-    local file="${1:-$(conf get src)}" playback control reader writer pipe="$(new_pipe)"
-    local rf_small=$(conf get rate_factor_small) rf_big=$(conf get rate_factor_big)
+view_loop() {
+    local file="${1:-$(conf get src)}" control reader writer rate_control="$(new_pipe)"
 
     conf quiet || echo -e "\nFile: $file"
     log "viewing file: $file"
 
     conf "stty=$(stty -g)"
 
-    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 > "$pipe" ;} & writer=$!
-    pv --quiet -C -B32 --rate-limit $(conf get rate) < "$pipe" & reader=$!
+    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 > "$rate_control" ;} & writer=$!
+    pv --quiet -C -B32 --rate-limit $(conf get rate) < "$rate_control" & reader=$!
 
     trap noop INT
 
-    playback=pc/PLAY
     while kill -0 "$reader" &> /dev/null; do
         unset control
         read -t0.5 control
         [[ ! $control == NOOP ]] && log "got playback control $control"
 
         case $control in
-            pc/PLAY)
-                if [[ $playback == pc/PLAY ]]; then
-                    playback=PAUSE
+            PP) if [[ $(kv get pc/status) == PLAY ]]; then
+                    kv pc/status=PAUSE
                     pv -R $reader --rate-limit 1
-                elif [[ $playback == pc/PAUSE ]]; then
-                    playback=PLAY
+                elif [[ $(kv get pc/status) == PAUSE ]]; then
+                    kv pc/status=PLAY
                     pv -R $reader --rate-limit $(conf get rate)
                 fi
                 log "playback changed to $playback"         ;;
-            pc/R_@(UP|DOWN)?(2))
+            R_@(UP|DOWN)?(2))
                 change_rate $control
                 pv -R $reader --rate-limit $(conf get rate) ;;
-            pc/@(NEXT|PREV|HELP|MENU))
-                playback=$control
+            @(NEXT|PREV|HELP|MENU))
+                kv pc/status=$control
                 log "playback changed to $playback"
                 break                                       ;;
-            pc/STOP) [[ $playback == pc/PLAY ]] && playback=pc/STOP
-                log "playback changed to $playback"
+            STOP)
+                [[ $(kv get pc/status) == PLAY ]] && {
+                    kv pc/status=STOP
+                    log "playback changed to $playback"
+                }
                 break                                       ;;
         esac
     done< <(playback_control)
@@ -394,20 +394,105 @@ view_file() {
     trap - INT
 
     kill $writer $reader &> /dev/null
+    rm $rate_control
 
     stty "$(conf get stty)"
     echo -e '\033[0m'
+}
 
-    rm $pipe
+pause_loop() {
+    local control sleeper
 
-    return $(code get $playback)
+    log "enter pause: $(conf get pause) seconds"
+
+    ( sleep $(( $(conf get pause) )) ) & sleeper=$!
+
+    while kill -0 $sleeper &> /dev/null; do
+        unset control
+        read -t0.5 control
+        [[ ! $control == NOOP ]] && log "got playback control $control"
+
+        case $control in
+            PP) if [[ $(kv get pc/status) == PLAY ]]; then
+                    kv pc/status=PAUSE
+                    pv -R $reader --rate-limit 1
+                elif [[ $(kv get pc/status) == PAUSE ]]; then
+                    kv pc/status=PLAY
+                    pv -R $reader --rate-limit $(conf get rate)
+                fi
+                log "playback changed to $playback"         ;;
+            R_@(UP|DOWN)?(2))
+                change_rate $control
+                pv -R $reader --rate-limit $(conf get rate) ;;
+            @(NEXT|PREV|HELP|MENU))
+                kv pc/status=$control
+                log "playback changed to $playback"
+                break                                       ;;
+            STOP)
+                [[ $(kv get pc/status) == PLAY ]] && {
+                    kv pc/status=STOP
+                    log "playback changed to $playback"
+                }
+                break                                       ;;
+        esac
+    done< <(playback_control)
+
+    trap - INT
+
+    kill $writer $reader &> /dev/null
+    rm $rate_control
+
+    stty "$(conf get stty)"
+    echo -e '\033[0m'
+}
+
+pause_loop() {
+    local control sleeper
+
+    log "enter pause: $(conf get pause) seconds"
+
+    ( sleep $(( $(conf get pause) )) ) & sleeper=$!
+
+    while kill -0 $sleeper &> /dev/null; do
+        unset control
+        read -t0.5 control
+        [[ ! $control == NOOP ]] && log "got playback control $control"
+
+        case $control in
+            PP) if [[ $(kv get pc/status) == PLAY ]]; then kv pc/status=PAUSE
+                elif [[ $(kv get pc/status) == PAUSE ]]; then kv pc/status=PLAY
+                fi
+                log "playback changed to $playback"
+                break                               ;;
+            R_@(UP|DOWN)?(2))
+                change_rate $control                ;;
+            @(NEXT|PREV|HELP|MENU))
+                kv pc/status=$control
+                log "playback changed to $playback"
+                break                               ;;
+            STOP)
+                [[ $(kv get pc/status) == PLAY ]] && {
+                    kv pc/status=STOP
+                    log "playback changed to $playback"
+                }
+                break                               ;;
+            *) continue                             ;;
+        esac
+    done< <(playback_control)
+
+    log "exit pause"
+}
+
+at_end() {
+    local cursor=$1 total=$2 to_count to_total
+    echo $(( to_count=$(conf get count) - cursor, to_total=total - cursor ))
+    log "cursor $cursor, to count: $to_count, to total: $to_total"
+    (( to_count < 2 || to_total < 2 ))
 }
 
 
 # COMMANDS ---------------------------------------------------------------------
 cmd_view() {
-    local playback control sleeper
-
     local -a playlist
     readarray -t playlist< <(file_list)
     local total=${#playlist[@]}
@@ -416,59 +501,29 @@ cmd_view() {
 
     log "$(conf get count) images (max $total) from $(conf get src)"
 
-    playback=pc/PLAY
+    kv pc/status=PLAY
 
-    local i
-    for (( i = 0; i < $(conf get count) && i < total; i++ )); do
-        log "list pointer $i"
+    local cursor
+    for (( cursor = 0; cursor < $(conf get count) && cursor < total; cursor++ )); do
+        log "playlist cursor: $cursor"
 
-        if [[ $playback =~ ^pc/(PLAY|NEXT|PREV)$ ]]; then
-            view_file "$(readlink -f "${playlist[$i]}")"
-            playback=$(code key pc=$?)
-            log "playback from view_file(): $playback"
-        fi
+        [[ $(kv get pc/status) =~ ^(PLAY|NEXT|PREV)$ ]] && view_loop "$(readlink -f "${playlist[$cursor]}")"
 
-        # next/prev skip pause since they jump around the playlist
-        (( $(conf get pause) && i + 1 < $(conf get count) && i + 1 < total )) &&
-        [[ $playback == pc/PLAY || $playback == pc/PAUSE ]] &&  {
-            log "enter pause: $(conf get pause) seconds"
+        # last file in playlist/count skips pause, as well as next/prev
+        (( $(conf get pause) )) && ! at_end $cursor $total &&
+        [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && pause_loop
 
-            ( sleep $(( $(conf get pause) )) ) & sleeper=$!
-
-            while kill -0 $sleeper &> /dev/null; do
-                unset control
-                read -t0.5 control
-                log "got playback control $control while pausing"
-
-                case $control in
-                    pc/PLAY)
-                        if [[ $playback == pc/PLAY ]]; then playback=pc/PAUSE
-                        elif [[ $playback == pc/PAUSE ]]; then playback=pc/PLAY
-                        fi
-                        break                                 ;;
-                    pc/@(STOP|NEXT|PREV))
-                        playback=$control
-                        break                                 ;;
-                    pc/R_@(UP|DOWN)?(2)) change_rate $control ;;
-                    pc/@(HELP|MENU)) break                    ;;
-                    *) continue                               ;;
-                esac
-            done< <(playback_control)
-
-            log "exit pause"
-        }
-
-        log "list playback is $playback"
-
-        case $playback in
-            pc/STOP) break                  ;;
-            pc/PAUSE) (( i-- )) ; continue  ;; # freeze arrow
-            pc/PREV) (( i -= (i ? 2 : 1) )) ;; # move arrow
+        case $(kv get pc/status) in
+            STOP) break                             ;;
+            PAUSE) (( cursor-- )) ; continue        ;; # freeze cursor
+            PREV) (( cursor -= (cursor ? 2 : 1) ))  ;; # move cursor
         esac
 
         conf clear && clear
         conf reset && reset
     done
+
+    kv pc/status=STOP
 }
 
 cmd_manage() {
@@ -566,9 +621,6 @@ init_codes() {
     kv codes/p/SUCCESS=TRUE
     kv codes/p/ERROR=FALSE
     kv_load_seq codes/p 10 NOOP ABORT ENO{CMD,TOK}
-
-    # playback control
-    kv_load_seq codes/pc 20 P{LAY,AUSE,P,REV} NEXT LOOP R_{UP,DOWN}{,2} STOP HELP MENU
 }
 
 init_script() {
