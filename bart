@@ -289,10 +289,6 @@ update_throttle() {
     log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(kv get pc/throttle)"
 }
 
-throttle() {
-    sleep ${1:-$(conf get throttle)}
-}
-
 
 # COMMANDS ---------------------------------------------------------------------
 view_loop() {
@@ -314,17 +310,17 @@ view_loop() {
             log "$(type sleep)"
         }
 
+        local IFS= throttle=$(kv get pc/throttle) control
         trap "read -rst0.1 control < $viewer_pipe" USR1
         while read -sra line; do
             for (( i = 0; i < ${#line}; i++ )); do
                 echo -ne ${line:i:1}
                 [[ -v control ]] && {
-                    log "got throttle control $control in viewer"
-                    update_throttle $control
+                    log "got throttle value $control in viewer"
+                    throttle=$control
                     unset control
-                    t=$(conf get throttle)
                 }
-                throttle $t
+                sleep $throttle
             done
             echo
         done< <(iconv -f IBM437 -t utf8 "$file")
@@ -347,7 +343,7 @@ view_loop() {
                 log "playback changed to $(kv get pc/status)"   ;;
             R_@(UP|DOWN)?(2))
                 update_throttle $control
-                { echo $control >> "$viewer_pipe" ;}&
+                { kv get pc/throttle >> "$viewer_pipe" ;}&
                 kill -USR1 $viewer                              ;;
             @(NEXT|PREV|HELP|MENU|REPLAY))
                 kv pc/status=$control
