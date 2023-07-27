@@ -272,7 +272,7 @@ playback_control() {
 }
 
 update_throttle() {
-    local rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    local throttle rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
            R_UP) (( rate += small )) ;;
           R_UP2) (( rate += big ))   ;;
@@ -281,14 +281,18 @@ update_throttle() {
     esac
     (( rate = rate  < 1 ? 1 : rate ))
     conf rate=$rate
-    #conf "throttle=$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)" | awk '{printf "%.2e\n", $1}')"
-    conf "throttle=$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
-    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(conf get throttle)"
+
+    throttle="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    kv script/bash_loadables || throttle=$(awk '{printf "%.2e\n", $1}' <<< $throttle)
+    kv "pc/throttle=$throttle"
+
+    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(kv get pc/throttle)"
 }
 
 throttle() {
     sleep ${1:-$(conf get throttle)}
 }
+
 
 # COMMANDS ---------------------------------------------------------------------
 view_loop() {
@@ -304,7 +308,12 @@ view_loop() {
 
     trap noop INT
 
-    {   local IFS= t=$(conf get throttle) control
+    {   kv script/bash_loadables && {
+            export BASH_LOADABLES_PATH="$(kv get script/bash_loadables)"
+            enable -f sleep sleep
+            log "$(type sleep)"
+        }
+
         trap "read -rst0.1 control < $viewer_pipe" USR1
         while read -sra line; do
             for (( i = 0; i < ${#line}; i++ )); do
@@ -422,6 +431,7 @@ cmd_view() {
     log "playing $(conf get count) images (max $total) from $(conf get src)"
 
     kv pc/status=PLAY
+    update_throttle
 
     local cursor
     for (( cursor = 0; cursor < $(conf get count) && cursor < total; cursor++ )); do
@@ -698,8 +708,10 @@ init_config() {
 }
 
 init_misc() {
-    update_throttle
     conf tty=$(tty)
+
+    local bash_loadables="$(pkg-config bash --variable=loadablesdir &2> /dev/null )"
+    [[ -n "$bash_loadables" ]] && kv script/bash_loadables="$bash_loadables"
 
     code p/SUCCESS
 }
@@ -721,7 +733,4 @@ init() {
 
 
 # PROGRAM ----------------------------------------------------------------------
-# export BASH_LOADABLES_PATH=$(pkg-config bash --variable=loadablesdir &2> /dev/null )
-# [[ -n BASH_LOADABLES_PATH ]] && enable -f sleep sleep
-
 init codes script config misc $@ && cmd_$(kv get script/command)
