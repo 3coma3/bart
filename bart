@@ -293,6 +293,7 @@ update_throttle() {
 # COMMANDS ---------------------------------------------------------------------
 view_loop() {
     local file="${1:-$(conf get src)}" control viewer viewer_pipe=$(new_pipe)
+    local -a contents
 
     conf quiet || msg "\nFile: $file"
     log "viewing file: $file"
@@ -312,7 +313,10 @@ view_loop() {
 
         local IFS= throttle=$(kv get pc/throttle) control
         trap "read -rst0.1 control < $viewer_pipe" USR1
-        while read -sra line; do
+
+        mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
+
+        for line in "${contents[@]}"; do
             for (( i = 0; i < ${#line}; i++ )); do
                 echo -ne ${line:i:1}
                 [[ -v control ]] && {
@@ -322,8 +326,8 @@ view_loop() {
                 }
                 sleep $throttle
             done
-            echo
-        done< <(iconv -f IBM437 -t utf8 "$file")
+        done
+
         trap - USR1
     }& viewer=$!
 
