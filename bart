@@ -439,44 +439,48 @@ pause_loop() {
     log "end pause"
 }
 
-at_end() {
-    local cursor=$1 total=$2 to_count to_total
-    log "cursor $cursor, to count: $to_count, to total: $to_total"
-    (( to_count < 2 || to_total < 2 ))
+cursor_to_end() {
+    local cursor=$(kv get pc/cursor) to_end to_count=$(conf get count) to_total=$(kv get pc/total)
+    (( to_count -= cursor, to_total -= cursor,
+       to_end = to_count < to_total ? to_count : to_total ))
+    [[ $@ =~ --log ]] && log "playlist cursor $cursor, to count: $to_count, to total: $to_total, to end: $to_end"
+    [[ $@ =~ --echo ]] && echo $(( to_end ))
+    (( to_end ))
 }
 
 
 # COMMANDS ---------------------------------------------------------------------
 cmd_view() {
-    local -a playlist
+    local -a playlist cursor total
     readarray -t playlist< <(file_list)
-    local total=${#playlist[@]}
 
+    total=${#playlist[@]}
+    kv pc/total=$total
     (( $(conf get count) )) || conf count=$total
 
     log "playing $(conf get count) images (max $total) from $(conf get src)"
 
-    kv pc/status=PLAY
     update_throttle
 
-    local cursor
-    for (( cursor = 0; cursor < $(conf get count) && cursor < total; cursor++ )); do
-        log "playlist cursor: $cursor"
+    kv pc/status=PLAY
+    kv pc/cursor=0
+
+    for (( cursor=$(kv get pc/cursor); ++cursor, $(cursor_to_end --echo --log); )); do
+        kv pc/cursor=$cursor
 
         [[ $(kv get pc/status) =~ ^((RE)?PLAY|NEXT|PREV)$ ]] && view_loop "$(readlink -f "${playlist[$cursor]}")"
-        log "playback is $(kv get pc/status)"
+        log "after view status is $(kv get pc/status)"
 
-        # last file skips pause, as well as status other than play/pause
-        (( $(conf get pause) )) && ! at_end $cursor $total &&
-        [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && pause_loop
-        log "playback is $(kv get pc/status)"
+        # skips pause: last file, status other than play/pause
+        (( $(conf get pause) )) && [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && cursor_to_end && pause_loop
+        log "after pause status is $(kv get pc/status)"
 
         case $(kv get pc/status) in
             REPLAY) playback=PC_PLAY                ;&
             PAUSE) (( cursor-- )) ; continue        ;; # freeze cursor
-            PREV) (( cursor -= (cursor ? 2 : 1) ))  ;; # move cursor
-            STOP)                                   ;&
-            @(HELP|MENU)) break                     ;; # not yet implemented, get out
+            PREV) (( cursor -= (cursor ? 2 : 1) ))  ;; # rewind cursor
+            @(HELP|MENU))                           ;& # not yet implemented
+            STOP) break                             ;;
         esac
 
         conf clear && clear
