@@ -248,8 +248,8 @@ conf() {
 
 
 # I/O --------------------------------------------------------------------------
-clear_stdin() {
-    read -t 0 && while read -e -t 0.1; do :; done
+clear_input() {
+    while read -e -t 0.1; do :; done
 }
 
 confirm() {
@@ -305,12 +305,13 @@ file_list() {
 }
 
 new_tmp () {
-    local suffix="${1}"
+    local suffix="$1"
     mktemp -tu $(conf get script_name)${suffix}.$(printf 'X%.0s' {1..10})
 }
 
 new_pipe() {
-    local pipe="$(new_tmp playback)"
+    local suffix="$1"
+    local pipe="$(new_tmp $suffix)"
     mkfifo "$pipe"
     log "created pipe by request of ${FUNCNAME[1]}: $pipe"
     echo "$pipe"
@@ -326,6 +327,7 @@ playback_control() {
         [n]=NEXT
         [p]=PREV
         [q]=STOP
+        [r]=REPLAY
         [u]=R_UP
         [d]=R_DOWN
         [U]=R_UP2
@@ -334,96 +336,154 @@ playback_control() {
 
     local key controls="${!control_mappings[@]}"
 
+    trap noop TTIN
+
     IFS=''
     while :; do
-        read -t 0.1 -s -N 1 -d '' key
-        clear_stdin
-
-        key="${key// /_}"
-        if [[ $key =~ [${controls// /}] ]]; then echo ${control_mappings[$key]}
-        else echo NOOP
-        fi
+        read -t0.1 -s -N 1 -d '' key
+        [[ "${key// /_}" =~ [${controls// /}] ]] && {
+            echo ${control_mappings[$key]} &
+            kill -USR1 $(kv get script/pid)
+        }
     done
+
+    trap - TTIN
 }
 
-change_rate() {
-    local rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+update_throttle() {
+    local throttle rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
            R_UP) (( rate += small )) ;;
           R_UP2) (( rate += big ))   ;;
          R_DOWN) (( rate -= small )) ;;
         R_DOWN2) (( rate -= big ))   ;;
     esac
-    conf rate=$(( rate < 1 ? 1 : rate ))
-    log "updated rate to $(conf get rate)"
+    (( rate = rate  < 1 ? 1 : rate ))
+    conf rate=$rate
+
+    throttle="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    kv script/bash_loadables || throttle=$(awk '{printf "%.2e\n", $1}' <<< $throttle)
+    kv "pc/throttle=$throttle"
+
+    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(kv get pc/throttle)"
 }
 
-view_loop() {
-    local file="${1:-$(conf get src)}" control viewer
 
-    conf quiet || echo -e "\nFile: $file"
+# COMMANDS ---------------------------------------------------------------------
+view_loop() {
+    local file="${1:-$(conf get src)}" control viewer pc viewer_pipe=$(new_pipe viewer) pc_pipe=$(new_pipe pc)
+    local -a contents
+
+    conf quiet || msg "\nFile: $file"
     log "viewing file: $file"
 
-    kv pc/status=PLAY
-
     conf "stty=$(stty -g)"
+    stty -echo
+    stty $(stty -g)
+    tput civis
 
     trap noop INT
 
-    { tr '\0' ' ' < "$file" | iconv -f 437 -t utf8 | pv --quiet -C -B32 --rate-limit $(conf get rate) ;} & viewer=$!
+    kv pc/status=PLAY
 
+    playback_control > "$pc_pipe" <&0 & pc=$!
+
+    {   kv script/bash_loadables && {
+            export BASH_LOADABLES_PATH="$(kv get script/bash_loadables)"
+            enable -f sleep sleep
+            log "$(type sleep)"
+        }
+
+        local IFS= throttle=$(kv get pc/throttle) control
+
+        local -a contents
+        mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
+
+        trap "read -rst0.1 control < $viewer_pipe" USR1
+
+        for line in "${contents[@]}"; do
+            for (( i = 0; i < ${#line}; i++ )); do
+                echo -ne ${line:i:1}
+                [[ -v control ]] && {
+                    log "got throttle value $control in viewer"
+                    throttle=$control
+                    unset control
+                }
+                sleep $throttle
+            done
+        done
+
+        trap - USR1
+    } & viewer=$!
+
+    trap "read -rst0.1 control < $pc_pipe" USR1
     while kill -0 "$viewer" &> /dev/null; do
-        unset control
-        read -t0.5 control
-        [[ ! $control == NOOP ]] && log "got playback control $control"
+        [[ -v control ]] || continue
+
+        log "got playback control $control"
 
         case $control in
             PP) if [[ $(kv get pc/status) == PLAY ]]; then
                     kv pc/status=PAUSE
-                    pv -R $reader --rate-limit 1
+                    kill -STOP $viewer
                 elif [[ $(kv get pc/status) == PAUSE ]]; then
                     kv pc/status=PLAY
-                    pv -R $reader --rate-limit $(conf get rate)
+                    kill -CONT $viewer
                 fi
                 log "playback changed to $(kv get pc/status)"   ;;
             R_@(UP|DOWN)?(2))
-                change_rate $control
-                pv -R $reader --rate-limit $(conf get rate)     ;;
-            @(NEXT|PREV|HELP|MENU))
+                update_throttle $control
+                kv get pc/throttle > "$viewer_pipe" &
+                kill -USR1 $viewer                              ;;
+            @(NEXT|PREV|HELP|MENU|REPLAY))
                 kv pc/status=$control
-                log "playback changed to $(kv get pc/status)"
+                log "playback changed to $control"
                 break                                           ;;
             STOP)
                 [[ $(kv get pc/status) == PLAY ]] && {
                     kv pc/status=STOP
-                    log "playback changed to $(kv get pc/status)"
+                    log "playback changed to STOP"
+                    kill $viewer &>/dev/null
                 }
                 break                                           ;;
-            *) continue                                         ;;
+            *) :                                                ;;
         esac
-    done< <(playback_control)
 
-    kill $viewer &> /dev/null
+        unset control
+    done < "$pc_pipe"
 
-    trap - INT
+    kill $viewer $pc &>/dev/null
+    rm "$viewer_pipe" "$pc_pipe"
+
+    trap - INT USR1
 
     stty "$(conf get stty)"
+    #tput sgr0
     echo -e '\033[0m'
+    tput cnorm
 
     log "end view"
 }
 
 pause_loop() {
-    local control sleeper
+    local control sleeper pc_pipe=$(new_pipe pc)
+
+    trap noop INT
 
     log "pausing $(conf get pause) seconds"
 
+    conf "stty=$(stty -g)"
+    stty -echo
+    stty $(stty -g)
+
+    playback_control > "$pc_pipe" <&0 & pc=$!
     sleep $(( $(conf get pause) )) & sleeper=$!
 
+    trap "read -rst0.1 control < $pc_pipe" USR1
     while kill -0 $sleeper &> /dev/null; do
-        unset control
-        read -t0.5 control
-        [[ ! $control == NOOP ]] && log "got playback control $control"
+        [[ -v control ]] || continue
+
+        log "got playback control $control"
 
         case $control in
             PP) if [[ $(kv get pc/status) == PLAY ]]; then kv pc/status=PAUSE
@@ -432,60 +492,76 @@ pause_loop() {
                 log "playback changed to $(kv get pc/status)"
                 break                                           ;;
             R_@(UP|DOWN)?(2))
-                change_rate $control                            ;;
-            @(NEXT|PREV|HELP|MENU))
+                update_throttle $control                        ;;
+            @(NEXT|PREV|REPLAY|HELP|MENU))
                 kv pc/status=$control
-                log "playback changed to $(kv get pc/status)"
+                log "playback changed to $control"
                 break                                           ;;
             STOP)
                 [[ $(kv get pc/status) == PLAY ]] && {
                     kv pc/status=STOP
-                    log "playback changed to $(kv get pc/status)"
+                    log "playback changed to STOP"
+                    kill $sleeper &>/dev/null
                 }
                 break                                           ;;
-            *) continue                                         ;;
+            *) :                                                ;;
         esac
-    done< <(playback_control)
+
+        unset control
+    done < "$pc_pipe"
+
+    kill $pc &>/dev/null
+    rm "$pc_pipe"
+
+    trap - INT USR1
+
+    stty "$(conf get stty)"
 
     log "end pause"
 }
 
-at_end() {
-    local cursor=$1 total=$2 to_count to_total
-    echo $(( to_count=$(conf get count) - cursor, to_total=total - cursor ))
-    log "cursor $cursor, to count: $to_count, to total: $to_total"
-    (( to_count < 2 || to_total < 2 ))
+cursor_to_end() {
+    local cursor=$(kv get pc/cursor) to_end to_count=$(conf get count) to_total=$(kv get pc/total)
+    (( to_count -= cursor, to_total -= cursor,
+       to_end = to_count < to_total ? to_count : to_total ))
+    [[ $@ =~ --log ]] && log "playlist cursor $cursor, to count: $to_count, to total: $to_total, to end: $to_end"
+    [[ $@ =~ --echo ]] && echo $(( to_end ))
+    (( to_end ))
 }
 
 
 # COMMANDS ---------------------------------------------------------------------
 cmd_view() {
-    local -a playlist
+    local -a playlist cursor total
     readarray -t playlist< <(file_list)
-    local total=${#playlist[@]}
 
+    total=${#playlist[@]}
+    kv pc/total=$total
     (( $(conf get count) )) || conf count=$total
 
     log "playing $(conf get count) images (max $total) from $(conf get src)"
 
+    update_throttle
+
     kv pc/status=PLAY
+    kv pc/cursor=0
 
-    local cursor
-    for (( cursor = 0; cursor < $(conf get count) && cursor < total; cursor++ )); do
-        log "playlist cursor: $cursor"
+    for (( cursor=$(kv get pc/cursor); ++cursor, $(cursor_to_end --echo --log); )); do
+        kv pc/cursor=$cursor
 
-        [[ $(kv get pc/status) =~ ^(PLAY|NEXT|PREV)$ ]] && view_loop "$(readlink -f "${playlist[$cursor]}")"
-        log "playback is $(kv get pc/status)"
+        [[ $(kv get pc/status) =~ ^((RE)?PLAY|NEXT|PREV)$ ]] && view_loop "$(readlink -f "${playlist[$cursor]}")"
+        log "after view status is $(kv get pc/status)"
 
-        # last file skips pause, as well as status other than play/pause
-        (( $(conf get pause) )) && ! at_end $cursor $total &&
-        [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && pause_loop
-        log "playback is $(kv get pc/status)"
+        # skips pause: last file, status other than play/pause
+        (( $(conf get pause) )) && [[ $(kv get pc/status) =~ ^(PLAY|PAUSE)$ ]] && cursor_to_end && pause_loop
+        log "after pause status is $(kv get pc/status)"
 
         case $(kv get pc/status) in
-            STOP) break                             ;;
+            REPLAY) playback=PC_PLAY                ;&
             PAUSE) (( cursor-- )) ; continue        ;; # freeze cursor
-            PREV) (( cursor -= (cursor ? 2 : 1) ))  ;; # move cursor
+            PREV) (( cursor -= (cursor ? 2 : 1) ))  ;; # rewind cursor
+            @(HELP|MENU))                           ;& # not yet implemented
+            STOP) break                             ;;
         esac
 
         conf clear && clear
@@ -591,6 +667,8 @@ init_codes() {
     kv codes/p/SUCCESS=TRUE
     kv codes/p/ERROR=FALSE
     kv_load_seq codes/p 10 NOOP ABORT ENO{CMD,TOK}
+
+    code p/SUCCESS
 }
 
 init_script() {
@@ -600,6 +678,8 @@ init_script() {
     [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
     kv script/title=bart
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
+
+    code p/SUCCESS
 }
 
 init_config() {
@@ -610,9 +690,9 @@ init_config() {
     conf logfile=''
     conf src=''
     conf dst=''
-    conf rate=5000
-    conf rate_factor_small=30
-    conf rate_factor_big=150
+    conf rate='1K'
+    conf rate_factor_small=16
+    conf rate_factor_big=256
     conf count=0
     conf pause=0
     conf include_linked=FALSE
@@ -738,6 +818,15 @@ init_config() {
     code p/SUCCESS
 }
 
+init_misc() {
+    conf tty=$(tty)
+
+    local bash_loadables="$(pkg-config bash --variable=loadablesdir &2> /dev/null )"
+    [[ -n "$bash_loadables" ]] && kv script/bash_loadables="$bash_loadables"
+
+    code p/SUCCESS
+}
+
 init() {
     local f initqueue
 
@@ -755,4 +844,4 @@ init() {
 
 
 # PROGRAM ----------------------------------------------------------------------
-init codes script config $@ && cmd_$(kv get script/command)
+init codes script config misc $@ && cmd_$(kv get script/command)
