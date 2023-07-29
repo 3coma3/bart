@@ -443,7 +443,7 @@ playback_control() {
     echo -e '\033[0;10m'
     tput cnorm
 
-    # Preserve playback state to resume after help or menu
+    # Preserve playback state to resume after interrupting controls
     [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]] && return
 
     exec 3>&-
@@ -459,6 +459,8 @@ playback_control() {
 viewer() {
     local file="${1:-$(conf get src)}" throttle=$(kv get pc/throttle) control IFS=
 
+    trap noop TTIN TTOU HUP
+
     kv script/bash_loadables && {
         export BASH_LOADABLES_PATH="$(kv get script/bash_loadables)"
         enable -f sleep sleep
@@ -468,8 +470,6 @@ viewer() {
     mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
 
     log "viewing file: $file"
-
-    trap noop TTIN TTOU
     conf quiet || msg "\nFile: $file"
 
     trap "read -rst0.1 control" USR1
@@ -485,7 +485,7 @@ viewer() {
         done
     done
 
-    trap - USR1 TTIN TTOU
+    trap - USR1 TTIN TTOU HUP
 
     log "end view"
 }
@@ -493,9 +493,9 @@ viewer() {
 pauser() {
     log "pausing $(conf get pause) seconds"
 
-    trap noop USR1
+    trap noop USR1 HUP
     sleep $(conf get pause)
-    trap - USR1
+    trap - USR1 HUP
 
     log "end pause"
 }
