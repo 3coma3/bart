@@ -5,13 +5,22 @@
 # version 1
 #
 # - WIP
-#       manage() is essentially play() with a menu, so it will turned into the
-#       menu functionalities, called from play() when MENU is selected
+#   - UI
+#       - status line/box (press l or have an option to default it to on/off)
 #
-#       fix symlink path generation in dst
-#       cleanup / simplify management
-#       back off from overusing kv in tight loops until it's optimized (and even
-#       then, use locals when perf is due)
+#       these two show/use the statusline when called:
+#       - online minihelp (press h)
+#       - online menu (press m or have an option to display after each file)
+#           operations
+#               playback control, move/copy/link/delete source/delete destination, file info, minihelp
+#           options
+#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
+#
+#       refactor manage() into the menu functionality
+#
+#   - Bugfixes
+#       symlink path generation in dst
+#       cleanup / simplify management (overhaul above)
 #
 # - features
 #       allow entering dst from menu in case it wasn't passed or configured
@@ -26,10 +35,9 @@
 #       regex/glob filters, listings and information
 #
 #       --help or help command
-#           complete information under script ns (homepage, etc)
+#           complete the information under script ns (homepage, etc)
 #
-#       implemented in native_throttle:
-#           PC_REPLAY control
+#       auto up/downgrade to text/curses/multiplexers, detecting backends
 #
 # - plumbing
 #       use exit and return instead of retcode where it's clearer/better
@@ -38,17 +46,8 @@
 #       try to have a way to specify / know of logfiles as early as possible, to log
 #       initialization before env (ideally right at the start)
 #       verbosity levels, complete logging
-#       implement kv_t and move types there (should be faster/simpler code, plus it
-#       can handle arbitrary attrs like +r, etc)
-#
-# - UI
-#       online menu (press m or have an option to display after each file)
-#           operations
-#               playback control, move/copy/link/delete source/delete destination, file info, minihelp
-#           options
-#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
-#       status line/box (press l or have an option to default it to on/off)
-#       auto up/downgrade to text/curses/multiplexers, detecting backends
+#       implement kv_meta and move types/arbitrary attrs there (should render a
+#       faster/simpler/more powerful kv())
 #
 # - pm
 #       write initial README
@@ -74,6 +73,7 @@
 #
 # - pm
 #       full doc
+#       other pm stuff
 
 
 # BASICS -----------------------------------------------------------------------
