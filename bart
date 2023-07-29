@@ -365,12 +365,10 @@ update_throttle() {
 }
 
 playback_control() {
-    local job_cmd="$1" job control interrupt_controls="HELP|MENU" input_pipe
+    local job_cmd="$1" job control interrupt_controls='HELP|MENU' input_pipe
     shift
 
     trap noop INT
-
-    kv pc/status=PLAY
 
     conf "stty=$(stty -g)"
     stty -echo
@@ -382,7 +380,7 @@ playback_control() {
     user_input <&0 >&4 & input=$!
     trap "read -rst0.1 -u4 control" USR1
 
-    if [[ $(kv get pc/status) =~ ^($interrupt_controls) ]]; then
+    if [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]]; then
         job=$(kv get pc/job)
         log "resuming $job_cmd $job"
         kill -CONT $job
@@ -395,6 +393,8 @@ playback_control() {
 
         log "started $job_cmd, pid $job"
     fi
+
+    kv pc/status=PLAY
 
     while kill -0 $job &> /dev/null; do
         [[ -v control ]] || continue
@@ -418,7 +418,7 @@ playback_control() {
                 kill -USR1 $job                                ;;
 
             @(NEXT|PREV|REPLAY|STOP))
-                kill $job &>/dev/null
+                kill -TERM $job &>/dev/null
                 kv pc/status=$control
                 log "playback changed to $control"              ;;
 
