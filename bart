@@ -87,7 +87,6 @@ declare -i TRUE=$(( !FALSE ))
 
 # VALUE MANAGEMENT -------------------------------------------------------------
 declare -A KV
-
 print_arr() {
     local -n arr="$1"
     local v
@@ -149,36 +148,38 @@ kv() {
     fi
     ns=${ns:+$ns/}
 
-    [[ $cmd == key ]] && {
-        v="${line#*=}"
-        while read line; do
-            [[ "$v" == "${line#*=}" ]] && {
-                echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
-                return $TRUE
-            }
-        done< <(kv_printns $ns$k)
-        return $FALSE
-    }
+    case $cmd in
+        key)
+            v="${line#*=}"
+            while read line; do
+                [[ "$v" == "${line#*=}" ]] && {
+                    echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
+                    return $TRUE
+                }
+            done< <(kv_printns $ns$k)
+            return $FALSE
+            ;;
 
-    [[ $cmd == set ]] && {
-        ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
+        set)
+            ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
 
-        v="${line#*=}"
-        case "$v" in
-             TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
-            ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"   ;;
-                      *) KV[${ns}__int__${k}]=$v     ;;
-        esac
-        return $TRUE
-    }
+            v="${line#*=}"
+            case "$v" in
+                TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
+                ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"  ;;
+                *) KV[${ns}__int__${k}]=$v              ;;
+            esac
+            return $TRUE
+            ;;
 
-    [[ $cmd == delns ]] && {
-        while read line; do
-            test="${line%%=*}"
-            [[ -v KV[$test] ]] && unset KV[$test]
-        done< <(kv_printns $ns$k)
-        return $TRUE
-    }
+        delns)
+            while read line; do
+                test="${line%%=*}"
+                [[ -v KV[$test] ]] && unset KV[$test]
+            done< <(kv_printns $ns$k)
+            return $TRUE
+            ;;
+    esac
 
     for t in bool int str; do
         test="${ns}__${t}__${k}"
