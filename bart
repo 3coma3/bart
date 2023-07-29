@@ -365,7 +365,7 @@ update_throttle() {
 }
 
 playback_control() {
-    local job_cmd="$1" job control interrupt_controls='HELP|MENU' input_pipe
+    local job_cmd="$1" job input{,_{control,pipe}} interrupt_controls='HELP|MENU'
     shift
 
     trap noop INT
@@ -378,7 +378,7 @@ playback_control() {
     input_pipe=$(new_pipe input)
     exec 4<>"$input_pipe"
     user_input <&0 >&4 & input=$!
-    trap "read -rst0.1 -u4 control" USR1
+    trap "read -rst0.1 -u4 input_control" USR1
 
     if [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]]; then
         job=$(kv get pc/job)
@@ -397,11 +397,11 @@ playback_control() {
     kv pc/status=PLAY
 
     while kill -0 $job &> /dev/null; do
-        [[ -v control ]] || continue
+        [[ -v input_control ]] || continue
 
-        log "got playback control ${control}"
+        log "got control from input:${input_control}"
 
-        case $control in
+        case $input_control in
             PP) if [[ $(kv get pc/status) == PLAY ]]; then
                     kill -STOP $job
                     kv pc/status=PAUSE
@@ -412,28 +412,28 @@ playback_control() {
                 log "playback changed to $(kv get pc/status)"   ;;
 
             R_@(UP|DOWN)?(2))
-                update_throttle $control
+                update_throttle $input_control
                 clear_input <&3
                 kv get pc/throttle >&3 &
-                kill -USR1 $job                                ;;
+                kill -USR1 $job                                 ;;
 
             @(NEXT|PREV|REPLAY|STOP))
                 kill -TERM $job &>/dev/null
-                kv pc/status=$control
-                log "playback changed to $control"              ;;
+                kv pc/status=$input_control
+                log "playback changed to $input_control"              ;;
 
             @($interrupt_controls))
                 kill -STOP $job
                 log "paused $job_cmd $job"
 
-                kv pc/status=$control
-                log "playback changed to $control"
+                kv pc/status=$input_control
+                log "playback changed to $input_control"
                 break                                           ;;
 
             *) :                                                ;;
         esac
 
-        unset control
+        unset input_control
     done
 
     kill $input &>/dev/null
@@ -508,8 +508,8 @@ input_controlled() {
 }
 
 cursor_to_end() {
-    local cursor=$(kv get pc/cursor) to_end to_count=$(conf get count) to_total=$(kv get pc/total)
-    (( to_count -= cursor, to_total -= cursor,
+    local cursor=$(kv get pc/cursor) to_{count,total,end}
+    (( to_count = $(conf get count) - cursor, to_total = $(kv get pc/total) - cursor,
        to_end = to_count < to_total ? to_count : to_total ))
     [[ $@ =~ --log ]] && log "playlist cursor $cursor, to count: $to_count, to total: $to_total, to end: $to_end"
     [[ $@ =~ --echo ]] && echo $(( to_end ))
