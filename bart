@@ -269,7 +269,8 @@ user_input() {
     IFS=''
     while :; do
         read -t0.1 -s -N 1 -d '' key
-        [[ "${key// /_}" =~ [${controls// /}] ]] && {
+        key="${key// /_}"
+        [[ "$key" =~ [${controls// /}] ]] && {
             echo ${control_mappings[$key]} &
             kill -USR1 $(kv get script/pid)
         }
