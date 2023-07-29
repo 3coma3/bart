@@ -413,7 +413,6 @@ playback_control() {
 
             R_@(UP|DOWN)?(2))
                 update_throttle $input_control
-                clear_input <&3
                 kv get pc/throttle >&3 &
                 kill -USR1 $job                                 ;;
 
