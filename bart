@@ -5,13 +5,8 @@
 # version 1
 #
 # - WIP
-#       the view and pause loops are going to merge with playback
-#       control, since they are waiting for some pid and doing the same, pids
-#       may be passed from play() and that's it
-#
-#       playback control mappings could end up also in kv
-#
-#       manage() is essentially play() with a menu, so they should be one function
+#       manage() is essentially play() with a menu, so it will turned into the
+#       menu functionalities, called from play() when MENU is selected
 #
 #       fix symlink path generation in dst
 #       cleanup / simplify management
