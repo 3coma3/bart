@@ -387,7 +387,7 @@ playback_control() {
         log "resuming $job_cmd $job"
         kill -CONT $job
     else
-        kv pc/control_pipe="$(new_pipe ${FUNCNAME})"
+        kv pc/control_pipe="$(new_pipe control)"
         exec 3<>"$(kv get pc/control_pipe)"
 
         $job_cmd $@ <&3 >&1 & job=$!
