@@ -84,6 +84,23 @@ shopt -s extglob
 declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
 
+# collect a list of prefixed functions, then call them forwarding arguments
+fqueue() {
+    local f q prefix=$1
+    shift
+
+    while (( $# )); do
+        f=${prefix}_${1}
+        [[ $(type -t $f) != function || "$q" =~ (^| )"$f"( |$) ]] && break
+        q="$q $f"
+        shift
+    done
+
+    for f in $q; do
+       $f $@ || return $?
+    done
+}
+
 
 # VALUE MANAGEMENT -------------------------------------------------------------
 declare -A KV
@@ -826,18 +843,9 @@ init_misc() {
 }
 
 init() {
-    local f initqueue
-
-    while (( $# )); do
-        f=init_${1}
-        [[ $(type -t $f) != function || "$initqueue" =~ (^| )"$f"( |$) ]] && break
-        initqueue="$initqueue $f"
-        shift
-    done
-
-    for f in $initqueue; do
-       $f $@ || return $?
-    done
+    log 'begin initialization'
+    fqueue init $@
+    log 'end initialization'
 }
 
 
