@@ -6,17 +6,22 @@
 #
 # - WIP
 #   - UI
-#       - status line/box (press l or have an option to default it to on/off)
+#       - status line/box (press S or have an option to default it to on/off)
+#           script info
+#           playlist info
+#           file and progress
+#           controls help
 #
-#       these two show/use the statusline when called:
-#       - online minihelp (press h)
-#       - online menu (press m or have an option to display after each file)
+#       these two show/use the statusline plus boxes:
+#       - online minihelp (press H)
+#       - online menu (press M or have an option to display after each file)
+#           refactor manage() into the menu facilities
+#
 #           operations
-#               playback control, move/copy/link/delete source/delete destination, file info, minihelp
-#           options
-#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
+#               playback, move/copy/link/delete source/destination, file info, minihelp
 #
-#       refactor manage() into the menu functionality
+#           options
+#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, statusline layout
 #
 #   - Bugfixes
 #       symlink path generation in dst
@@ -26,7 +31,6 @@
 #       allow entering dst from menu in case it wasn't passed or configured
 #       add move operation
 #
-#       end of list controlled by "loop" flag/playback mode/control
 #       add option for flat/preserve structure
 #       options for global/per file rate change effects
 #       minfilesize maxfilesize
@@ -46,8 +50,7 @@
 #       try to have a way to specify / know of logfiles as early as possible, to log
 #       initialization before env (ideally right at the start)
 #       verbosity levels, complete logging
-#       implement kv_meta and move types/arbitrary attrs there (should render a
-#       faster/simpler/more powerful kv())
+#       implement kv_meta and move types/arbitrary attrs there (should render a faster/simpler/more powerful kv())
 #
 # - pm
 #       write initial README
