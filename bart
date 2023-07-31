@@ -365,6 +365,8 @@ error() {
 
     [[ $code != ERROR ]] && code=E${code}
 
+    cleanup
+
     exit $(code get p/${code})
 }
 
@@ -928,6 +930,16 @@ init() {
 
 
 # PROGRAM ----------------------------------------------------------------------
+cleanup() {
+    exec 7<&-
+    kill $(kv get script/mq/rmq) &> /dev/null
+    kill $(kv get script/mq/cleanup) &> /dev/null
+}
+
+
+# PROGRAM ----------------------------------------------------------------------
+trap cleanup EXIT
+
 init codes script config mq misc $@
 
 (( $? )) || cmd_$(kv get script/command)
