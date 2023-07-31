@@ -106,41 +106,23 @@ fqueue() {
 
 
 # VALUE MANAGEMENT -------------------------------------------------------------
-declare -A KV
+declare -A KV KA
+
 print_arr() {
     local -n arr="$1"
-    local v
-    for v in ${!arr[@]}; do
-        echo $v=${arr[$v]}
-    done
-}
+    local k
 
-kv_printns() {
-    local filter
-
-    (( $# )) && {
-        if [[ $1 =~ .*/.*  ]]; then filter="${1%/*}/(__[^_]+__)*${1##*/}[/=]"
-        else filter="(__[^_]+__)*$1[/=]"
-        fi
+    (( $# == 1 )) && {
+        for k in ${!arr[@]}; do
+            echo $k=${arr[$k]}
+        done
+        return
     }
 
-    print_arr KV | sed -rn '\@^'$filter'@p' | sort -u
-}
-
-kv_print() {
-    local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
-    local n t k v
-
-    IFS='|'
-    kv_printns $@ | sed -rn 's/^([^_]+)*__([^_]+)__([^=]+)=(.*)$/\1|\2|\3|\4/p' | while read n t k v; do
-        echo -n "$n$k="
-        case $t in
-             str) echo "\"$v\""     ;;
-             int) echo $v           ;;
-            bool) echo ${TF[$v]}    ;;
-        esac
+    for k in ${!arr[@]}; do
+        [[ $k =~ ^$2 ]] && echo $k=${arr[$k]}
     done
-}
+ }
 
 kv() {
     local cmd=test line ns k v test
@@ -151,7 +133,18 @@ kv() {
     fi
 
     [[ $cmd == print ]] && {
-        kv_print $@
+        local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
+        local nk v
+
+        while read -r line; do
+            nk="${line%=*}" v="${line#*=}"
+            echo -n "$nk="
+            case ${KA[$nk]} in
+                str) echo "\"$v\""      ;;
+                int) echo $v            ;;
+                bool) echo ${TF[$v]}    ;;
+            esac
+        done< <(print_arr KV $@)
         return $?
     }
 
@@ -166,53 +159,46 @@ kv() {
     if [[ $ns =~ .*/.*  ]]; then k="${ns##*/}" ns="${ns%/*}"    # normal ns
     else k="$ns" ns=''                                          # root ns (no slashes)
     fi
-    ns=${ns:+$ns/}
+
+    k=${ns:+$ns/}$k
 
     case $cmd in
         key)
-            v="${line#*=}"
+            v="${line/#$k?(=)}" k="${v:+$k}" v="${v:-$line}"
             while read line; do
                 [[ "$v" == "${line#*=}" ]] && {
-                    echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
+                    echo "${line%%=*}"
                     return $TRUE
                 }
-            done< <(kv_printns $ns$k)
-            return $FALSE
-            ;;
+            done< <(print_arr KV "$k")
+            return $FALSE               ;;
 
         set)
-            ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
-
             v="${line#*=}"
             case "$v" in
-                TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
-                ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"  ;;
-                *) KV[${ns}__int__${k}]=$v              ;;
+                 TRUE|FALSE) KV[$k]=${!v} KA[$k]=bool   ;;
+                ''|*[!0-9]*) KV[$k]="$v"  KA[$k]=str    ;;
+                          *) KV[$k]=$v    KA[$k]=int    ;;
             esac
-            return $TRUE
-            ;;
+            return $TRUE                ;;
 
         delns)
             while read line; do
-                test="${line%%=*}"
-                [[ -v KV[$test] ]] && unset KV[$test]
-            done< <(kv_printns $ns$k)
-            return $TRUE
-            ;;
+                k="${line%%=*}"
+                unset KV[$k] KA[$k]
+            done< <(print_arr KV "$k")
+            return $TRUE                ;;
     esac
 
-    for t in bool int str; do
-        test="${ns}__${t}__${k}"
-        [[ -v KV[$test] ]] && {
-            case $cmd in
-                get) echo "${KV[$test]}"                      ;;
-                del) unset KV[$test]                          ;;
-                type) echo $t                                 ;;
-                test) [[ $t == bool ]] && return ${KV[$test]} ;;
-            esac
-            return $TRUE
-        }
-    done
+    [[ -v KV[$k] ]] && {
+        case $cmd in
+            test) [[ ${KA[$k]} == bool ]] && return ${KV[$k]} ;;
+            get) echo "${KV[$k]}"       ;;
+            del) unset KV[$k] KA[$k]    ;;
+            type) echo ${KA[$k]}        ;;
+        esac
+        return $TRUE
+    }
 
     return $FALSE
 }
