@@ -208,54 +208,45 @@ kv_load_seq() {
 
 # MESSAGE QUEUE ----------------------------------------------------------------
 mq() {
-    local recv cmd=$1 pid=$2
-    shift 2
+    echo $@ >&7
 
-    case $cmd in
-           send) echo send $pid "$@" > $MQP         ;;
-        receive) recv="$(new_tmp recv)"
-                 mkfifo "$recv"
-                 echo "receive $pid $recv" > $MQP
-                 read msg < "$recv"
-                 rm "$recv"
-                 echo "$msg"                        ;;
-    esac
+    (( $# == 1 )) && {
+        local msg
+        read msg <&8
+        echo $msg
+    }
 }
 
 rmq() {
     log "$FUNCNAME started, pid $BASHPID"
 
-    local cmd pid msg recv_pipe cleanup IFS=' '
+    local lock p pid msg IFS=' '
 
-    trap "cleanup=TRUE" USR2
+    trap "for p in ${!MQ[@]}; do
+            kill -0 $p 2>/dev/null || [[ -n \"${MQ[$p]}\" ]] || unset MQ[$p]
+          done" USR1
 
-    while :; do
-        read -r cmd pid msg
-        [[ -v cmd ]] && {
-            case $cmd in
-                send) MQ[$pid]+="${msg}"$'\n'
-                      kill -USR1 $pid 2>/dev/null           ;;
+    while read -r pid msg; do
+        while [[ -v lock ]]; do :; done
+        lock=1
 
-             receive) [[ -v MQ[$pid] ]] && {
-                          recv="$msg"
-                          msgs=${MQ[$pid]}
-                          read msg <<< "$msgs"
-                          # Remove the oldest message from the pid's queue
-                          MQ[$pid]=${msgs#*$'\n'}
-                          [[ -z "${MQ[$pid]}" ]] && unset MQ[$pid]
-                          echo "$msg" > "$recv"
-                      }                                     ;;
-            esac
-            unset cmd pid msg msgs
+        [[ -z $msg ]] || {
+            if [[ $msg == flush ]]; then
+                unset MQ[$pid]
+                unset lock
+            else
+                MQ[$pid]+="${msg}"$'\n'
+                unset lock
+                kill -USR1 $pid 2>/dev/null
+            fi
+            continue
         }
 
-        [[ -v cleanup ]] && {
-            for pid in ${!MQ[@]}; do
-                kill -0 $pid &>/dev/null || unset MQ[$pid]
-            done
-            unset cleanup
-        }
-   done
+        [[ -v MQ[$pid] ]] || [[ -n "${MQ[$pid]}" ]] || continue
+        echo ${MQ[$pid]%$'\n'*}
+        MQ[$pid]=${MQ[$pid]#*$'\n'}
+        unset lock
+    done
 }
 
 
@@ -706,11 +697,11 @@ cmd_config() {
 
 test1() {
     local mqmessage
-    trap "read mqmessage< <(mq receive $BASHPID)" USR1
+    trap "read mqmessage< <(mq $BASHPID)" USR1
 
     while :; do
         [[ -v mqmessage ]] && {
-            log "Got MQ message: $mqmessage"
+            log "Got MQ message: ${mqmessage}"
             unset mqmessage
         }
     done
@@ -721,9 +712,9 @@ cmd_test() {
     local pid=$!
 
     while read line; do
-        for ((a=line; a; a--)); do
-            mq send $pid $a
-            sleep 1
+        for ((; line; line--)); do
+            mq $pid $line
+            sleep 0.003
         done
     done
 }
@@ -756,15 +747,18 @@ init_script() {
 }
 
 init_mq() {
-    declare -gA MQ
+    declare -g MQW=$(new_pipe mqs)
+    exec 7<>"$MQW"
 
-    declare -g MQP=$(new_pipe MQ)
-    exec 7<>"$MQP"
+    declare -g MQR=$(new_pipe mqr)
+    exec 8<>"$MQR"
 
-    rmq <&7 &
+    declare -ga MQ
+
+    rmq <&7 >&8 &
     kv script/mq/rmq=$!
 
-    { while sleep 1; do kill -USR2 $(kv get script/mq/rmq); done ;} &
+    { while sleep 10; do kill -USR1 $(kv get script/mq/rmq); done ;} &
     kv script/mq/cleanup=$!
 }
 
@@ -931,9 +925,17 @@ init() {
 
 # PROGRAM ----------------------------------------------------------------------
 cleanup() {
-    exec 7<&-
+    log 'begin cleanup'
+
     kill $(kv get script/mq/rmq) &> /dev/null
     kill $(kv get script/mq/cleanup) &> /dev/null
+
+    exec 7<&-
+    exec 8<&-
+
+    log $(rm -v $MQS $MQR)
+
+    log 'end cleanup'
 }
 
 
