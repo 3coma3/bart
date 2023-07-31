@@ -212,8 +212,7 @@ mq() {
 
     (( $# == 1 )) && {
         local msg
-        read msg <&8
-        echo $msg
+        read -t0.1 msg <&8 && echo $msg
     }
 }
 
@@ -221,30 +220,30 @@ rmq() {
     log "$FUNCNAME started, pid $BASHPID"
 
     local lock p pid msg IFS=' '
+    local -a MQ
 
-    trap "for p in ${!MQ[@]}; do
-            kill -0 $p 2>/dev/null || [[ -n \"${MQ[$p]}\" ]] || unset MQ[$p]
-          done" USR1
+    trap "for p in ${!MQ[@]}; do kill -0 $p 2>/dev/null || unset MQ[$p]; done" USR1
 
     while read -r pid msg; do
         while [[ -v lock ]]; do :; done
+
         lock=1
 
         [[ -z $msg ]] || {
-            if [[ $msg == flush ]]; then
-                unset MQ[$pid]
-                unset lock
-            else
-                MQ[$pid]+="${msg}"$'\n'
-                unset lock
-                kill -USR1 $pid 2>/dev/null
+            if [[ $msg == --flush ]]; then unset MQ[$pid]
+            elif [[ ! -v MQ[$pid] ]]; then
+                MQ[$pid]="$msg"
+                kill -USR1 $pid 2>/dev/null &
             fi
+            unset lock
             continue
         }
 
-        [[ -v MQ[$pid] ]] || [[ -n "${MQ[$pid]}" ]] || continue
-        echo ${MQ[$pid]%$'\n'*}
-        MQ[$pid]=${MQ[$pid]#*$'\n'}
+        [[ -v MQ[$pid] ]] && {
+            echo "${MQ[$pid]}" &
+            unset MQ[$pid]
+        }
+
         unset lock
     done
 }
@@ -696,13 +695,13 @@ cmd_config() {
 
 
 test1() {
-    local mqmessage
-    trap "read mqmessage< <(mq $BASHPID)" USR1
+    local message
+    trap "read -t0.2 message< <(mq $BASHPID)" USR1
 
     while :; do
-        [[ -v mqmessage ]] && {
-            log "Got MQ message: ${mqmessage}"
-            unset mqmessage
+        [[ -v message ]] && {
+            log "Got MQ message: $message"
+            unset message
         }
     done
 }
@@ -714,7 +713,7 @@ cmd_test() {
     while read line; do
         for ((; line; line--)); do
             mq $pid $line
-            sleep 0.003
+            sleep 0.004
         done
     done
 }
@@ -747,18 +746,16 @@ init_script() {
 }
 
 init_mq() {
-    declare -g MQW=$(new_pipe mqs)
-    exec 7<>"$MQW"
+    kv script/mq/sockets/send="$(new_pipe mqs)"
+    exec 7<>"$(kv get script/mq/sockets/send)"
 
-    declare -g MQR=$(new_pipe mqr)
-    exec 8<>"$MQR"
-
-    declare -ga MQ
+    kv script/mq/sockets/receive="$(new_pipe mqr)"
+    exec 8<>"$(kv get script/mq/sockets/receive)"
 
     rmq <&7 >&8 &
     kv script/mq/rmq=$!
 
-    { while sleep 10; do kill -USR1 $(kv get script/mq/rmq); done ;} &
+    { while sleep 3; do kill -USR1 $(kv get script/mq/rmq); done ;} &
     kv script/mq/cleanup=$!
 }
 
@@ -923,7 +920,7 @@ init() {
 }
 
 
-# PROGRAM ----------------------------------------------------------------------
+# CLEANUP ----------------------------------------------------------------------
 cleanup() {
     log 'begin cleanup'
 
@@ -933,15 +930,13 @@ cleanup() {
     exec 7<&-
     exec 8<&-
 
-    log $(rm -v $MQS $MQR)
+    log $(rm -v $(kv get script/mq/sockets/send))
+    log $(rm -v $(kv get script/mq/sockets/receive))
 
+    kv delns script/mq
     log 'end cleanup'
 }
 
 
 # PROGRAM ----------------------------------------------------------------------
-trap cleanup EXIT
-
-init codes script config mq misc $@
-
-(( $? )) || cmd_$(kv get script/command)
+init codes script config mq misc $@ && cmd_$(kv get script/command)
