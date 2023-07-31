@@ -5,19 +5,32 @@
 # version 1
 #
 # - WIP
-#       manage() is essentially play() with a menu, so it will turned into the
-#       menu functionalities, called from play() when MENU is selected
+#   - UI
+#       - status line/box (press S or have an option to default it to on/off)
+#           script info
+#           playlist info
+#           file and progress
+#           controls help
 #
-#       fix symlink path generation in dst
-#       cleanup / simplify management
-#       back off from overusing kv in tight loops until it's optimized (and even
-#       then, use locals when perf is due)
+#       these two show/use the statusline plus boxes:
+#       - online minihelp (press H)
+#       - online menu (press M or have an option to display after each file)
+#           refactor manage() into the menu facilities
+#
+#           operations
+#               playback, move/copy/link/delete source/destination, file info, minihelp
+#
+#           options
+#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max, statusline layout
+#
+#   - Bugfixes
+#       symlink path generation in dst
+#       cleanup / simplify management (overhaul above)
 #
 # - features
 #       allow entering dst from menu in case it wasn't passed or configured
 #       add move operation
 #
-#       end of list controlled by "loop" flag/playback mode/control
 #       add option for flat/preserve structure
 #       options for global/per file rate change effects
 #       minfilesize maxfilesize
@@ -26,10 +39,9 @@
 #       regex/glob filters, listings and information
 #
 #       --help or help command
-#           complete information under script ns (homepage, etc)
+#           complete the information under script ns (homepage, etc)
 #
-#       implemented in native_throttle:
-#           PC_REPLAY control
+#       auto up/downgrade to text/curses/multiplexers, detecting backends
 #
 # - plumbing
 #       use exit and return instead of retcode where it's clearer/better
@@ -38,17 +50,7 @@
 #       try to have a way to specify / know of logfiles as early as possible, to log
 #       initialization before env (ideally right at the start)
 #       verbosity levels, complete logging
-#       implement kv_t and move types there (should be faster/simpler code, plus it
-#       can handle arbitrary attrs like +r, etc)
-#
-# - UI
-#       online menu (press m or have an option to display after each file)
-#           operations
-#               playback control, move/copy/link/delete source/delete destination, file info, minihelp
-#           options
-#               rate, confirmation, pause, random mode, quiet mode, min/max width/height, auto-max
-#       status line/box (press l or have an option to default it to on/off)
-#       auto up/downgrade to text/curses/multiplexers, detecting backends
+#       implement kv_meta and move types/arbitrary attrs there (should render a faster/simpler/more powerful kv())
 #
 # - pm
 #       write initial README
@@ -74,6 +76,7 @@
 #
 # - pm
 #       full doc
+#       other pm stuff
 
 
 # BASICS -----------------------------------------------------------------------
@@ -83,6 +86,23 @@ shopt -s extglob
 # opposite semantics for return values and arithmetic tests, courtesy of bash
 declare -i FALSE=1
 declare -i TRUE=$(( !FALSE ))
+
+# collect a list of prefixed functions, then call them forwarding arguments
+fqueue() {
+    local f q prefix=$1
+    shift
+
+    while (( $# )); do
+        f=${prefix}_${1}
+        [[ $(type -t $f) != function || "$q" =~ (^| )"$f"( |$) ]] && break
+        q="$q $f"
+        shift
+    done
+
+    for f in $q; do
+       $f $@ || return $?
+    done
+}
 
 
 # VALUE MANAGEMENT -------------------------------------------------------------
@@ -148,36 +168,38 @@ kv() {
     fi
     ns=${ns:+$ns/}
 
-    [[ $cmd == key ]] && {
-        v="${line#*=}"
-        while read line; do
-            [[ "$v" == "${line#*=}" ]] && {
-                echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
-                return $TRUE
-            }
-        done< <(kv_printns $ns$k)
-        return $FALSE
-    }
+    case $cmd in
+        key)
+            v="${line#*=}"
+            while read line; do
+                [[ "$v" == "${line#*=}" ]] && {
+                    echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
+                    return $TRUE
+                }
+            done< <(kv_printns $ns$k)
+            return $FALSE
+            ;;
 
-    [[ $cmd == set ]] && {
-        ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
+        set)
+            ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
 
-        v="${line#*=}"
-        case "$v" in
-             TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
-            ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"   ;;
-                      *) KV[${ns}__int__${k}]=$v     ;;
-        esac
-        return $TRUE
-    }
+            v="${line#*=}"
+            case "$v" in
+                TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
+                ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"  ;;
+                *) KV[${ns}__int__${k}]=$v              ;;
+            esac
+            return $TRUE
+            ;;
 
-    [[ $cmd == delns ]] && {
-        while read line; do
-            test="${line%%=*}"
-            [[ -v KV[$test] ]] && unset KV[$test]
-        done< <(kv_printns $ns$k)
-        return $TRUE
-    }
+        delns)
+            while read line; do
+                test="${line%%=*}"
+                [[ -v KV[$test] ]] && unset KV[$test]
+            done< <(kv_printns $ns$k)
+            return $TRUE
+            ;;
+    esac
 
     for t in bool int str; do
         test="${ns}__${t}__${k}"
@@ -315,7 +337,7 @@ conf() {
 
 # I/O --------------------------------------------------------------------------
 clear_input() {
-    while read -e -t 0.1; do :; done
+    while read -t 0.1; do :; done
 }
 
 user_input() {
@@ -327,21 +349,19 @@ user_input() {
         [p]=PREV
         [q]=STOP
         [r]=REPLAY
+        [l]=LOOP
         [u]=R_UP
         [d]=R_DOWN
         [U]=R_UP2
         [D]=R_DOWN2
     )
 
-    local key controls="${!control_mappings[@]}"
-
     trap noop TTIN
 
-    IFS=''
     while :; do
-        read -t0.1 -s -N 1 -d '' key
+        read -sN1 -t0.1 -d '' key
         key="${key// /_}"
-        [[ "$key" =~ [${controls// /}] ]] && {
+        [[ -v control_mappings[$key] ]] &&
             echo ${control_mappings[$key]} &
             kill -USR1 $(kv get script/pid)
         }
@@ -406,7 +426,7 @@ file_list() {
 
 new_tmp () {
     local suffix="$1"
-    mktemp -tu $(kv get script/name)-${suffix}.$(printf 'X%.0s' {1..10})
+    mktemp -p $(kv get script/tmpdir) -tu $(kv get script/name)-${suffix}.$(printf 'X%.0s' {1..10})
 }
 
 new_pipe() {
@@ -420,7 +440,7 @@ new_pipe() {
 
 # PLAYBACK ---------------------------------------------------------------------
 update_throttle() {
-    local throttle rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    local tv rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
            R_UP) (( rate += small )) ;;
           R_UP2) (( rate += big ))   ;;
@@ -430,15 +450,17 @@ update_throttle() {
     (( rate = rate  < 1 ? 1 : rate ))
     conf rate=$rate
 
-    throttle="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
-    kv script/bash_loadables || throttle=$(awk '{printf "%.2e\n", $1}' <<< $throttle)
-    kv "pc/throttle=$throttle"
+    tv="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    kv script/bash_loadables || tv=$(awk '{printf "%.2e\n", $1}' <<< $tv)
+    kv "pc/throttle=$tv"
 
-    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(kv get pc/throttle)"
+    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $tv)"
 }
 
 playback_control() {
     local job_cmd="$1" job input{,_{control,pipe}} interrupt_controls='HELP|MENU'
+    local -A loopmodes=([no]=1 [one]=2 [all]=3 [1]=no [2]=one [3]=all)
+
     shift
 
     trap noop INT
@@ -453,7 +475,7 @@ playback_control() {
     user_input <&0 >&4 & input=$!
     trap "read -rst0.1 -u4 input_control" USR1
 
-    if [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]]; then
+    if [[ $(kv get pc/status) =~ ^($interrupt_modes)$ ]]; then
         job=$(kv get pc/job)
         log "resuming $job_cmd $job"
         kill -CONT $job
@@ -472,7 +494,7 @@ playback_control() {
     while kill -0 $job &> /dev/null; do
         [[ -v input_control ]] || continue
 
-        log "got control from input:${input_control}"
+        log "got control from input: ${input_control}"
 
         case $input_control in
             PP) if [[ $(kv get pc/status) == PLAY ]]; then
@@ -481,22 +503,39 @@ playback_control() {
                 elif [[ $(kv get pc/status) == PAUSE ]]; then
                     kill -CONT $job
                     kv pc/status=PLAY
+
+                    [[ -v throttle_pp ]] && {
+                        kv get pc/throttle >&3 &
+                        kill -USR1 $job
+                        unset throttle_pp
+                    }
                 fi
                 log "playback changed to $(kv get pc/status)"   ;;
 
+            LOOP) loop=${loopmodes[$((${loopmodes[$(conf get loop)]} % (${#loopmodes[@]} / 2) + 1))]}
+                  conf loop=$loop
+                  log "loop mode changed to $loop"              ;;
+
             R_@(UP|DOWN)?(2))
                 update_throttle $input_control
-                kv get pc/throttle >&3 &
-                kill -USR1 $job                                 ;;
+
+                if [[ $(kv get pc/status) == PLAY ]]; then
+                    kv get pc/throttle >&3 &
+                    kill -USR1 $job
+                else
+                    throttle_pp=$(kv get pc/throttle)
+                fi                                              ;;
 
             @(NEXT|PREV|REPLAY|STOP))
                 kill -TERM $job &>/dev/null
-                kv pc/status=$input_control
-                log "playback changed to $input_control"              ;;
 
-            @($interrupt_controls))
+                kv pc/status=$input_control
+                log "playback changed to $input_control"
+                break                                           ;;
+
+            @($interrupt_modes))
+                log "pausing $job_cmd $job"
                 kill -STOP $job
-                log "paused $job_cmd $job"
 
                 kv pc/status=$input_control
                 log "playback changed to $input_control"
@@ -517,13 +556,12 @@ playback_control() {
     tput cnorm
 
     # Preserve playback state to resume after interrupting controls
-    [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]] && return
+    [[ $(kv get pc/status) =~ ^($interrupt_modes)$ ]] && return
 
     exec 3>&-
     log $(rm -v "$(kv get pc/control_pipe)")
     kv del pc/control_pipe
     kv del pc/job
-
     log "finished $job_cmd $job"
 
     trap - INT
@@ -539,16 +577,16 @@ viewer() {
         enable -f sleep sleep
     }
 
-    local -a contents
-    mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
-
     log "viewing file: $file"
     conf quiet || msg "\nFile: $file"
 
     trap "read -rst0.1 control" USR1
+    local -a contents
+    mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
+
     for line in "${contents[@]}"; do
         for (( i = 0; i < ${#line}; i++ )); do
-            echo -ne ${line:i:1}
+            while ! echo -ne ${line:i:1} 2>/dev/null; do :; done
             [[ -v control ]] && {
                 log "got throttle value $control in viewer"
                 throttle=$control
@@ -581,10 +619,13 @@ input_controlled() {
 
 cursor_to_end() {
     local cursor=$(kv get pc/cursor) to_{count,total,end}
+
     (( to_count = $(conf get count) - cursor, to_total = $(kv get pc/total) - cursor,
-       to_end = to_count < to_total ? to_count : to_total ))
+       to_end = (to_count < to_total) || $(conf get random) ? to_count : to_total ))
+
     [[ $@ =~ --log ]] && log "playlist cursor $cursor, to count: $to_count, to total: $to_total, to end: $to_end"
     [[ $@ =~ --echo ]] && echo $(( to_end ))
+
     (( to_end ))
 }
 
@@ -608,29 +649,32 @@ cmd_view() {
     for (( cursor=$(kv get pc/cursor); ++cursor, $(cursor_to_end --echo --log); )); do
         kv pc/cursor=$cursor
 
-        input_controlled viewer "$(readlink -f "${playlist[$cursor]}")"
+        input_controlled viewer "$(readlink -f "${playlist[$(( (total + cursor) % total ))]}")"
 
-        (( $(conf get pause) )) && [[ $(kv get pc/status) == PLAY ]] && cursor_to_end &&
+        (( $(conf get pause) )) && [[ $(kv get pc/status) == "PLAY" ]] && { cursor_to_end || [[ $(conf get loop) != no ]] ;} &&
             input_controlled pauser
 
         case $(kv get pc/status) in
+                    STOP) break                                 ;;
+
             @(HELP|MENU)) s=$(kv get pc/status)
                           log "here we should we calling ${s,,}()"
-                          sleep 5
+                          sleep 5                               ;&
 
-                          (( cursor-- ))        # freeze cursor
-                          continue              ;;
+                  REPLAY) (( cursor-- ))                        ;;          # freeze cursor
 
-                  REPLAY) kv pc/status=PC_PLAY
-                          (( cursor-- ))        # freeze cursor
-                          continue              ;;
+                    PREV) (( cursor -= (cursor > 1) ? 2 : 1 ))  ;;          # rewind cursor
 
-                    PREV) (( cursor -= (cursor ? 2 : 1) ))  # rewind cursor
-                          continue              ;;
+               NEXT|PLAY) case $(conf get loop) in
+                              one) (( cursor-- ))                       ;;  # freeze cursor
+                              all) cursor_to_end || cursor=0            ;;  # reset cursor
+                                *) :                                    ;;
+                          esac                                  ;;
 
-                    STOP) break                 ;;
+                       *) :                                     ;;
         esac
 
+        kv pc/cursor=$cursor
         conf clear && clear
         conf reset && reset
     done
@@ -795,6 +839,7 @@ init_script() {
     [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
     kv script/title=bart
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
+    kv script/tmpdir=/dev/shm
 
     code p/SUCCESS
 }
@@ -830,6 +875,7 @@ init_config() {
     conf yes=FALSE
     conf quiet=FALSE
     conf random=FALSE
+    conf loop='no'
     conf automax=FALSE
     conf autovp=FALSE
     conf maxw=0
@@ -884,7 +930,7 @@ init_config() {
             skip=FALSE
 
             case "$token" in
-                -@(l*|-include-linked)) k='include_linked=TRUE' ;;
+                -@(i*|-include-linked)) k='include_linked=TRUE' ;;
                         -@(r*|-random)) k='random=TRUE'         ;;
                          -@(c*|-clear)) k='clear=TRUE'          ;;
                          -@(R*|-reset)) k='reset=TRUE'          ;;
@@ -895,6 +941,7 @@ init_config() {
                          -@(n|-count)*) k=count                 ;;
                           -@(t|-rate)*) k=rate                  ;;
                          -@(p|-pause)*) k=pause                 ;;
+                          -@(l|-loop)*) k=loop                  ;;
                       -@(w|-minwidth)*) k=min_width             ;;
                       -@(W|-maxwidth)*) k=max_width             ;;
                      -@(h|-minheight)*) k=min_height            ;;
@@ -946,6 +993,8 @@ init_config() {
 
     log 'done processing configuration'
 
+    [[ -z "$(kv get script/command)" ]] && error NOCMD "no command was provided"
+
     code p/SUCCESS
 }
 
@@ -959,18 +1008,12 @@ init_misc() {
 }
 
 init() {
-    local f initqueue
+    log 'begin initialization'
+    fqueue $FUNCNAME $@
+    local ret=$?
 
-    while (( $# )); do
-        f=init_${1}
-        [[ $(type -t $f) != function || "$initqueue" =~ (^| )"$f"( |$) ]] && break
-        initqueue="$initqueue $f"
-        shift
-    done
-
-    for f in $initqueue; do
-       $f $@ || return $?
-    done
+    (( ret )) || log 'end initialization'
+    return $ret
 }
 
 
