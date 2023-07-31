@@ -810,6 +810,8 @@ init_config() {
 
     log 'done processing configuration'
 
+    [[ -z "$(kv get script/command)" ]] && error NOCMD "no command was provided"
+
     code p/SUCCESS
 }
 
