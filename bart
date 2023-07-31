@@ -87,7 +87,6 @@ declare -i TRUE=$(( !FALSE ))
 
 # VALUE MANAGEMENT -------------------------------------------------------------
 declare -A KV
-
 print_arr() {
     local -n arr="$1"
     local v
@@ -204,6 +203,59 @@ kv_load_seq() {
         kv $ns/$1=$(( base++ ))
         shift
     done
+}
+
+
+# MESSAGE QUEUE ----------------------------------------------------------------
+mq() {
+    local recv cmd=$1 pid=$2
+    shift 2
+
+    case $cmd in
+           send) echo send $pid "$@" > $MQP         ;;
+        receive) recv="$(new_tmp recv)"
+                 mkfifo "$recv"
+                 echo "receive $pid $recv" > $MQP
+                 read msg < "$recv"
+                 rm "$recv"
+                 echo "$msg"                        ;;
+    esac
+}
+
+rmq() {
+    log "$FUNCNAME started, pid $BASHPID"
+
+    local cmd pid msg recv_pipe cleanup IFS=' '
+
+    trap "cleanup=TRUE" USR2
+
+    while :; do
+        read -r cmd pid msg
+        [[ -v cmd ]] && {
+            case $cmd in
+                send) MQ[$pid]+="${msg}"$'\n'
+                      kill -USR1 $pid 2>/dev/null           ;;
+
+             receive) [[ -v MQ[$pid] ]] && {
+                          recv="$msg"
+                          msgs=${MQ[$pid]}
+                          read msg <<< "$msgs"
+                          # Remove the oldest message from the pid's queue
+                          MQ[$pid]=${msgs#*$'\n'}
+                          [[ -z "${MQ[$pid]}" ]] && unset MQ[$pid]
+                          echo "$msg" > "$recv"
+                      }                                     ;;
+            esac
+            unset cmd pid msg msgs
+        }
+
+        [[ -v cleanup ]] && {
+            for pid in ${!MQ[@]}; do
+                kill -0 $pid &>/dev/null || unset MQ[$pid]
+            done
+            unset cleanup
+        }
+   done
 }
 
 
@@ -650,6 +702,31 @@ cmd_config() {
 }
 
 
+test1() {
+    local mqmessage
+    trap "read mqmessage< <(mq receive $BASHPID)" USR1
+
+    while :; do
+        [[ -v mqmessage ]] && {
+            log "Got MQ message: $mqmessage"
+            unset mqmessage
+        }
+    done
+}
+
+cmd_test() {
+    test1 &
+    local pid=$!
+
+    while read line; do
+        for ((a=line; a; a--)); do
+            mq send $pid $a
+            sleep 1
+        done
+    done
+}
+
+
 # INITIALIZATION ---------------------------------------------------------------
 init_codes() {
     # types
@@ -674,6 +751,19 @@ init_script() {
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
 
     code p/SUCCESS
+}
+
+init_mq() {
+    declare -gA MQ
+
+    declare -g MQP=$(new_pipe MQ)
+    exec 7<>"$MQP"
+
+    rmq <&7 &
+    kv script/mq/rmq=$!
+
+    { while sleep 1; do kill -USR2 $(kv get script/mq/rmq); done ;} &
+    kv script/mq/cleanup=$!
 }
 
 init_config() {
@@ -838,4 +928,6 @@ init() {
 
 
 # PROGRAM ----------------------------------------------------------------------
-init codes script config misc $@ && cmd_$(kv get script/command)
+init codes script config mq misc $@
+
+(( $? )) || cmd_$(kv get script/command)
