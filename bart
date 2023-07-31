@@ -341,6 +341,9 @@ clear_input() {
 }
 
 user_input() {
+    local listener=${1:-$$} key IFS=''
+    log "sending inputs to $listener"
+
     local -A control_mappings=(
         [_]=PP                  # a space
         [h]=HELP
@@ -361,10 +364,7 @@ user_input() {
     while :; do
         read -sN1 -t0.1 -d '' key
         key="${key// /_}"
-        [[ -v control_mappings[$key] ]] &&
-            echo ${control_mappings[$key]} &
-            kill -USR1 $(kv get script/pid)
-        }
+        [[ -v control_mappings[$key] ]] && mq $listener ${control_mappings[$key]}
     done
 
     trap - TTIN
@@ -458,9 +458,9 @@ update_throttle() {
 }
 
 playback_control() {
-    local job_cmd="$1" job input{,_{control,pipe}} interrupt_controls='HELP|MENU'
     local -A loopmodes=([no]=1 [one]=2 [all]=3 [1]=no [2]=one [3]=all)
 
+    local job_cmd="$1" job input{,_control} interrupt_modes='HELP|MENU' loop
     shift
 
     trap noop INT
@@ -470,22 +470,16 @@ playback_control() {
     stty $(stty -g)
     tput civis
 
-    input_pipe=$(new_pipe input)
-    exec 4<>"$input_pipe"
-    user_input <&0 >&4 & input=$!
-    trap "read -rst0.1 -u4 input_control" USR1
+    trap "read input_control< <(mq $$)" USR1
+    user_input <&0 & input=$!
 
     if [[ $(kv get pc/status) =~ ^($interrupt_modes)$ ]]; then
         job=$(kv get pc/job)
         log "resuming $job_cmd $job"
         kill -CONT $job
     else
-        kv pc/control_pipe="$(new_pipe control)"
-        exec 3<>"$(kv get pc/control_pipe)"
-
-        $job_cmd $@ <&3 >&1 & job=$!
+        $job_cmd $@ >&1 & job=$!
         kv pc/job=$job
-
         log "started $job_cmd, pid $job"
     fi
 
@@ -505,8 +499,7 @@ playback_control() {
                     kv pc/status=PLAY
 
                     [[ -v throttle_pp ]] && {
-                        kv get pc/throttle >&3 &
-                        kill -USR1 $job
+                        mq $job $throttle_pp
                         unset throttle_pp
                     }
                 fi
@@ -520,8 +513,7 @@ playback_control() {
                 update_throttle $input_control
 
                 if [[ $(kv get pc/status) == PLAY ]]; then
-                    kv get pc/throttle >&3 &
-                    kill -USR1 $job
+                    mq $job $(kv get pc/throttle)
                 else
                     throttle_pp=$(kv get pc/throttle)
                 fi                                              ;;
@@ -548,8 +540,6 @@ playback_control() {
     done
 
     kill $input &>/dev/null
-    exec 4>&-
-    log $(rm -v "$input_pipe")
 
     stty "$(conf get stty)"
     echo -e '\033[0;10m'
@@ -558,13 +548,11 @@ playback_control() {
     # Preserve playback state to resume after interrupting controls
     [[ $(kv get pc/status) =~ ^($interrupt_modes)$ ]] && return
 
-    exec 3>&-
-    log $(rm -v "$(kv get pc/control_pipe)")
-    kv del pc/control_pipe
     kv del pc/job
     log "finished $job_cmd $job"
 
-    trap - INT
+    trap - USR1 INT
+    mq $$ --flush
 }
 
 viewer() {
@@ -580,10 +568,10 @@ viewer() {
     log "viewing file: $file"
     conf quiet || msg "\nFile: $file"
 
-    trap "read -rst0.1 control" USR1
     local -a contents
     mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
 
+    trap "read control< <(mq $BASHPID)" USR1
     for line in "${contents[@]}"; do
         for (( i = 0; i < ${#line}; i++ )); do
             while ! echo -ne ${line:i:1} 2>/dev/null; do :; done
@@ -597,6 +585,7 @@ viewer() {
     done
 
     trap - USR1 TTIN TTOU HUP
+    mq $BASHPID --flush
 
     log "end view"
 }
@@ -604,9 +593,11 @@ viewer() {
 pauser() {
     log "pausing $(conf get pause) seconds"
 
-    trap noop USR1 HUP
+    trap noop HUP
+    trap "mq $BASHPID --flush" USR1
     sleep $(conf get pause)
     trap - USR1 HUP
+    mq $BASHPID --flush
 
     log "end pause"
 }
@@ -1004,6 +995,8 @@ init_misc() {
     local bash_loadables="$(pkg-config bash --variable=loadablesdir &2> /dev/null )"
     [[ -n "$bash_loadables" ]] && kv script/bash_loadables="$bash_loadables"
 
+    trap "exit mq" EXIT
+
     code p/SUCCESS
 }
 
@@ -1018,9 +1011,7 @@ init() {
 
 
 # CLEANUP ----------------------------------------------------------------------
-cleanup() {
-    log 'begin cleanup'
-
+exit_mq() {
     kill $(kv get script/mq/rmq) &> /dev/null
     kill $(kv get script/mq/cleanup) &> /dev/null
 
@@ -1031,7 +1022,15 @@ cleanup() {
     log $(rm -v $(kv get script/mq/sockets/receive))
 
     kv delns script/mq
-    log 'end cleanup'
+}
+
+exit() {
+    log "begin exit cleanup"
+    fqueue $FUNCNAME $@
+    local ret=$?
+
+    log "end exit cleanup"
+    return $ret
 }
 
 
