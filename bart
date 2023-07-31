@@ -208,43 +208,72 @@ kv_load_seq() {
 
 # MESSAGE QUEUE ----------------------------------------------------------------
 mq() {
-    echo $@ >&7
+    # log "writing"
+    echo $@ >&7 &
+    # log "wrote"
 
     (( $# == 1 )) && {
-        local msg
-        read -t0.1 msg <&8 && echo $msg
+        # log "reading"
+        read -t0.2 -u8
+        # log "read"
+        echo $REPLY
     }
 }
 
 rmq() {
     log "$FUNCNAME started, pid $BASHPID"
 
-    local lock p pid msg IFS=' '
-    local -a MQ
+    local p pid msg IFS=' ' maxq=100
+
+    # order of messages, messages for delivery, delivery timeouts
+    # the use of mbox is the sole way to know there might be a trap in progress
+    # trying to read via mq, this way we sequence and arbiter the output pipe
+    # now as for the input pipe... no solution yet except flock
+    local -a line mbox mboxt
 
     trap "for p in ${!MQ[@]}; do kill -0 $p 2>/dev/null || unset MQ[$p]; done" USR1
 
-    while read -r pid msg; do
-        while [[ -v lock ]]; do :; done
+    while :; do
+        read -rt0.1 pid msg
 
-        lock=1
+        # flush
+        if [[ $msg == --flush ]]; then
+            unset queue
+            unset mbox[$pid]
+            unset mboxt[$pid]
 
-        [[ -z $msg ]] || {
-            if [[ $msg == --flush ]]; then unset MQ[$pid]
-            elif [[ ! -v MQ[$pid] ]]; then
-                MQ[$pid]="$msg"
-                kill -USR1 $pid 2>/dev/null &
-            fi
-            unset lock
-            continue
+        # receive an available mbox
+        elif [[ -z $msg && -v pid && -v mbox[$pid] ]]; then
+            echo "${mbox[$pid]}"
+            unset mbox[$pid]
+
+        # send
+        elif [[ -n $msg && -v pid ]]; then
+            # update the line
+            line+="$pid"
+
+            # queue up to maxq in the process queue
+            local -n queue=q${pid}
+            (( ${#queue[@]} < $maxq )) && queue+="$msg"
+        fi
+
+        unset pid msg
+
+        # now process the line, calling the next receiver to come pick its mbox
+        (( ${#line[@]} )) || continue
+        pid=${line[0]}
+        line=("${line[@]:1}")
+
+        # if there isn't an mbox ready, pop from the queue
+        [[ -v mbox[$pid] ]] || {
+            local -n queue=q${pid}
+            (( ${#queue[@]} )) && {
+                mbox[$pid]=${queue[0]}
+                queue=("${queue[@]:1}")
+            }
+
+            kill -USR1 $pid
         }
-
-        [[ -v MQ[$pid] ]] && {
-            echo "${MQ[$pid]}" &
-            unset MQ[$pid]
-        }
-
-        unset lock
     done
 }
 
@@ -693,27 +722,52 @@ cmd_config() {
     kv print conf | sed -r 's|^conf/||'
 }
 
-
-test1() {
-    local message
-    trap "read -t0.2 message< <(mq $BASHPID)" USR1
+mq_test() {
+    local instance=$1 ppid=$2 message
+    trap "read message< <(mq $BASHPID)" USR1
 
     while :; do
         [[ -v message ]] && {
-            log "Got MQ message: $message"
+            #log "Instance $instance got MQ message: $message"
+            mq $ppid "$message back from $instance"
             unset message
         }
     done
 }
 
 cmd_test() {
-    test1 &
-    local pid=$!
+    local -a mqtestfuncs input_control
+    for (( a=0; a<10; a++)); do
+        mq_test $a $$ &
+        mqtestfuncs[$a]=$!
+    done
+
+    trap "read input_control< <(mq $$)" USR1
+    user_input <&0 & input=$!
+
+    # while sleep 0.01; do
+    #     [[ -v input_control ]] || continue
+    #     log "got control from input: ${input_control}"
+    #
+    #     for f in ${!mqtestfuncs[@]}; do
+    #         mq ${mqtestfuncs[$f]} $input_control
+    #         sleep 0.0004
+    #     done
+    #     unset input_control
+    #  done
+    # return
 
     while read line; do
         for ((; line; line--)); do
-            mq $pid $line
-            sleep 0.004
+            for (( a=0; a<10; a++)); do
+                mq ${mqtestfuncs[$a]} $line
+
+                [[ -v input_control ]] && {
+                    log "got input: ${input_control}"
+                    unset input_control
+                }
+                sleep 0.02
+            done
         done
     done
 }
