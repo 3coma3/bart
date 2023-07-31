@@ -334,7 +334,7 @@ file_list() {
 
 new_tmp () {
     local suffix="$1"
-    mktemp -tu $(kv get script/name)-${suffix}.$(printf 'X%.0s' {1..10})
+    mktemp -p $(kv get script/tmpdir) -tu $(kv get script/name)-${suffix}.$(printf 'X%.0s' {1..10})
 }
 
 new_pipe() {
@@ -673,6 +673,7 @@ init_script() {
     [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
     kv script/title=bart
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
+    kv script/tmpdir=/dev/shm
 
     code p/SUCCESS
 }
