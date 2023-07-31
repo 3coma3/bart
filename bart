@@ -274,6 +274,7 @@ user_input() {
         [p]=PREV
         [q]=STOP
         [r]=REPLAY
+        [l]=LOOP
         [u]=R_UP
         [d]=R_DOWN
         [U]=R_UP2
@@ -362,7 +363,7 @@ new_pipe() {
 
 # PLAYBACK ---------------------------------------------------------------------
 update_throttle() {
-    local throttle rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    local tv rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
            R_UP) (( rate += small )) ;;
           R_UP2) (( rate += big ))   ;;
@@ -372,15 +373,17 @@ update_throttle() {
     (( rate = rate  < 1 ? 1 : rate ))
     conf rate=$rate
 
-    throttle="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
-    kv script/bash_loadables || throttle=$(awk '{printf "%.2e\n", $1}' <<< $throttle)
-    kv "pc/throttle=$throttle"
+    tv="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    kv script/bash_loadables || tv=$(awk '{printf "%.2e\n", $1}' <<< $tv)
+    kv "pc/throttle=$tv"
 
-    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $(kv get pc/throttle)"
+    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $tv)"
 }
 
 playback_control() {
     local job_cmd="$1" job input{,_{control,pipe}} interrupt_controls='HELP|MENU'
+    local -A loopmodes=([no]=1 [one]=2 [all]=3 [1]=no [2]=one [3]=all)
+
     shift
 
     trap noop INT
@@ -395,7 +398,7 @@ playback_control() {
     user_input <&0 >&4 & input=$!
     trap "read -rst0.1 -u4 input_control" USR1
 
-    if [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]]; then
+    if [[ $(kv get pc/status) =~ ^($interrupt_modes)$ ]]; then
         job=$(kv get pc/job)
         log "resuming $job_cmd $job"
         kill -CONT $job
@@ -414,7 +417,7 @@ playback_control() {
     while kill -0 $job &> /dev/null; do
         [[ -v input_control ]] || continue
 
-        log "got control from input:${input_control}"
+        log "got control from input: ${input_control}"
 
         case $input_control in
             PP) if [[ $(kv get pc/status) == PLAY ]]; then
@@ -423,22 +426,39 @@ playback_control() {
                 elif [[ $(kv get pc/status) == PAUSE ]]; then
                     kill -CONT $job
                     kv pc/status=PLAY
+
+                    [[ -v throttle_pp ]] && {
+                        kv get pc/throttle >&3 &
+                        kill -USR1 $job
+                        unset throttle_pp
+                    }
                 fi
                 log "playback changed to $(kv get pc/status)"   ;;
 
+            LOOP) loop=${loopmodes[$((${loopmodes[$(conf get loop)]} % (${#loopmodes[@]} / 2) + 1))]}
+                  conf loop=$loop
+                  log "loop mode changed to $loop"              ;;
+
             R_@(UP|DOWN)?(2))
                 update_throttle $input_control
-                kv get pc/throttle >&3 &
-                kill -USR1 $job                                 ;;
+
+                if [[ $(kv get pc/status) == PLAY ]]; then
+                    kv get pc/throttle >&3 &
+                    kill -USR1 $job
+                else
+                    throttle_pp=$(kv get pc/throttle)
+                fi                                              ;;
 
             @(NEXT|PREV|REPLAY|STOP))
                 kill -TERM $job &>/dev/null
-                kv pc/status=$input_control
-                log "playback changed to $input_control"              ;;
 
-            @($interrupt_controls))
+                kv pc/status=$input_control
+                log "playback changed to $input_control"
+                break                                           ;;
+
+            @($interrupt_modes))
+                log "pausing $job_cmd $job"
                 kill -STOP $job
-                log "paused $job_cmd $job"
 
                 kv pc/status=$input_control
                 log "playback changed to $input_control"
@@ -459,13 +479,12 @@ playback_control() {
     tput cnorm
 
     # Preserve playback state to resume after interrupting controls
-    [[ $(kv get pc/status) =~ ^($interrupt_controls)$ ]] && return
+    [[ $(kv get pc/status) =~ ^($interrupt_modes)$ ]] && return
 
     exec 3>&-
     log $(rm -v "$(kv get pc/control_pipe)")
     kv del pc/control_pipe
     kv del pc/job
-
     log "finished $job_cmd $job"
 
     trap - INT
@@ -481,13 +500,13 @@ viewer() {
         enable -f sleep sleep
     }
 
-    local -a contents
-    mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
-
     log "viewing file: $file"
     conf quiet || msg "\nFile: $file"
 
     trap "read -rst0.1 control" USR1
+    local -a contents
+    mapfile contents< <(iconv -f IBM437 -t utf8 "$file")
+
     for line in "${contents[@]}"; do
         for (( i = 0; i < ${#line}; i++ )); do
             while ! echo -ne ${line:i:1} 2>/dev/null; do :; done
@@ -523,10 +542,13 @@ input_controlled() {
 
 cursor_to_end() {
     local cursor=$(kv get pc/cursor) to_{count,total,end}
+
     (( to_count = $(conf get count) - cursor, to_total = $(kv get pc/total) - cursor,
-       to_end = to_count < to_total ? to_count : to_total ))
+       to_end = (to_count < to_total) || $(conf get random) ? to_count : to_total ))
+
     [[ $@ =~ --log ]] && log "playlist cursor $cursor, to count: $to_count, to total: $to_total, to end: $to_end"
     [[ $@ =~ --echo ]] && echo $(( to_end ))
+
     (( to_end ))
 }
 
@@ -550,29 +572,32 @@ cmd_view() {
     for (( cursor=$(kv get pc/cursor); ++cursor, $(cursor_to_end --echo --log); )); do
         kv pc/cursor=$cursor
 
-        input_controlled viewer "$(readlink -f "${playlist[$cursor]}")"
+        input_controlled viewer "$(readlink -f "${playlist[$(( (total + cursor) % total ))]}")"
 
-        (( $(conf get pause) )) && [[ $(kv get pc/status) == PLAY ]] && cursor_to_end &&
+        (( $(conf get pause) )) && [[ $(kv get pc/status) == "PLAY" ]] && { cursor_to_end || [[ $(conf get loop) != no ]] ;} &&
             input_controlled pauser
 
         case $(kv get pc/status) in
+                    STOP) break                                 ;;
+
             @(HELP|MENU)) s=$(kv get pc/status)
                           log "here we should we calling ${s,,}()"
-                          sleep 5
+                          sleep 5                               ;&
 
-                          (( cursor-- ))        # freeze cursor
-                          continue              ;;
+                  REPLAY) (( cursor-- ))                        ;;          # freeze cursor
 
-                  REPLAY) kv pc/status=PC_PLAY
-                          (( cursor-- ))        # freeze cursor
-                          continue              ;;
+                    PREV) (( cursor -= (cursor > 1) ? 2 : 1 ))  ;;          # rewind cursor
 
-                    PREV) (( cursor -= (cursor ? 2 : 1) ))  # rewind cursor
-                          continue              ;;
+               NEXT|PLAY) case $(conf get loop) in
+                              one) (( cursor-- ))                       ;;  # freeze cursor
+                              all) cursor_to_end || cursor=0            ;;  # reset cursor
+                                *) :                                    ;;
+                          esac                                  ;;
 
-                    STOP) break                 ;;
+                       *) :                                     ;;
         esac
 
+        kv pc/cursor=$cursor
         conf clear && clear
         conf reset && reset
     done
@@ -709,6 +734,7 @@ init_config() {
     conf yes=FALSE
     conf quiet=FALSE
     conf random=FALSE
+    conf loop='no'
     conf automax=FALSE
     conf autovp=FALSE
     conf maxw=0
@@ -763,7 +789,7 @@ init_config() {
             skip=FALSE
 
             case "$token" in
-                -@(l*|-include-linked)) k='include_linked=TRUE' ;;
+                -@(i*|-include-linked)) k='include_linked=TRUE' ;;
                         -@(r*|-random)) k='random=TRUE'         ;;
                          -@(c*|-clear)) k='clear=TRUE'          ;;
                          -@(R*|-reset)) k='reset=TRUE'          ;;
@@ -774,6 +800,7 @@ init_config() {
                          -@(n|-count)*) k=count                 ;;
                           -@(t|-rate)*) k=rate                  ;;
                          -@(p|-pause)*) k=pause                 ;;
+                          -@(l|-loop)*) k=loop                  ;;
                       -@(w|-minwidth)*) k=min_width             ;;
                       -@(W|-maxwidth)*) k=max_width             ;;
                      -@(h|-minheight)*) k=min_height            ;;
