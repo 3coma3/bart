@@ -476,7 +476,7 @@ viewer() {
     trap "read -rst0.1 control" USR1
     for line in "${contents[@]}"; do
         for (( i = 0; i < ${#line}; i++ )); do
-            echo -ne ${line:i:1}
+            while ! echo -ne ${line:i:1} 2>/dev/null; do :; done
             [[ -v control ]] && {
                 log "got throttle value $control in viewer"
                 throttle=$control
