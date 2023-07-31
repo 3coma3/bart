@@ -841,8 +841,11 @@ init_misc() {
 
 init() {
     log 'begin initialization'
-    fqueue init $@
-    log 'end initialization'
+    fqueue $FUNCNAME $@
+    local ret=$?
+
+    (( ret )) || log 'end initialization'
+    return $ret
 }
 
 
