@@ -280,15 +280,12 @@ user_input() {
         [D]=R_DOWN2
     )
 
-    local key controls="${!control_mappings[@]}"
-
     trap noop TTIN
 
-    IFS=''
     while :; do
-        read -t0.1 -s -N 1 -d '' key
+        read -sN1 -t0.1 -d '' key
         key="${key// /_}"
-        [[ "$key" =~ [${controls// /}] ]] && {
+        [[ -v control_mappings[$key] ]] &&
             echo ${control_mappings[$key]} &
             kill -USR1 $(kv get script/pid)
         }
