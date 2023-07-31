@@ -245,7 +245,7 @@ conf() {
 
 # I/O --------------------------------------------------------------------------
 clear_input() {
-    while read -e -t 0.1; do :; done
+    while read -t 0.1; do :; done
 }
 
 user_input() {
