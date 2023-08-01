@@ -565,23 +565,22 @@ cmd_view() {
             input_controlled pauser
 
         case $(kv get pc/status) in
-                    STOP) break                                 ;;
+                    STOP) break                                             ;;
 
             @(HELP|MENU)) s=$(kv get pc/status)
                           log "here we should we calling ${s,,}()"
-                          sleep 5                               ;&
+                          sleep 5                                           ;&
 
-                  REPLAY) (( cursor-- ))                        ;;          # freeze cursor
+                  REPLAY) (( cursor-- ))                                    ;;  # freeze cursor
 
-                    PREV) (( cursor -= (cursor > 1) ? 2 : 1 ))  ;;          # rewind cursor
+                    PREV) (( cursor -= (cursor > 1) ? 2 : 1 ))              ;;  # rewind cursor
 
-               NEXT|PLAY) case $(conf get loop) in
-                              one) (( cursor-- ))                       ;;  # freeze cursor
-                              all) cursor_to_end || cursor=0            ;;  # reset cursor
-                                *) :                                    ;;
-                          esac                                  ;;
+                    PLAY) [[ $(conf get loop) == one ]] && (( cursor-- ))   ;&  # freeze cursor
 
-                       *) :                                     ;;
+                    NEXT) [[ $(conf get loop) == all ]] &&
+                          { cursor_to_end || cursor=0 ;}                    ;;  # reset cursor
+
+                       *) :                                                 ;;
         esac
 
         kv pc/cursor=$cursor
