@@ -80,7 +80,7 @@
 
 
 # BASICS -----------------------------------------------------------------------
-shopt -s extglob
+shopt -s extglob lastpipe
 
 # "somewhat sane" true and false
 # opposite semantics for return values and arithmetic tests, courtesy of bash
