@@ -273,7 +273,7 @@ user_input() {
     while :; do
         read -sN1 -t0.1 -d '' key
         key="${key// /_}"
-        [[ -v control_mappings[$key] ]] &&
+        [[ -v control_mappings[$key] ]] && {
             echo ${control_mappings[$key]} &
             kill -USR1 $(kv get script/pid)
         }
