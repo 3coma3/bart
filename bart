@@ -233,17 +233,15 @@ noop() {
 
 
 # CONFIG -----------------------------------------------------------------------
-pprint_conf() {
-    echo -n 'config is: ['
-    kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
-}
 
 conf() {
     local cmd
 
     [[ $1 =~ ^(get|del|type|print)$ ]] && cmd=$1 && shift
 
-    if [[ $cmd == print ]]; then pprint_conf
+    if [[ $cmd == print ]]; then
+        echo -n 'config is: ['
+        kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
     else kv $cmd conf/$@
     fi
 }
