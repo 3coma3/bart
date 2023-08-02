@@ -165,7 +165,7 @@ kv() {
         key)
             v="${line/#$k?(=)}" k="${v:+$k}" v="${v:-$line}"
             while read line; do
-                [[ "$v" == "${line#*=}" ]] && {
+                [[ "${line#*=}" == "$v" ]] && {
                     echo "${line%%=*}"
                     return $TRUE
                 }
@@ -232,7 +232,6 @@ noop() {
 
 
 # CONFIG -----------------------------------------------------------------------
-
 conf() {
     local cmd
 
@@ -284,7 +283,7 @@ user_input() {
 confirm() {
     conf yes || {
         echo
-        read -r -p "${1:-Are you sure? (y/N)} " response
+        read -rp "${1:-Are you sure? (y/N)} " response
         [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
     }
 }
@@ -374,7 +373,7 @@ playback_control() {
 
     trap noop INT
 
-    conf "stty=$(stty -g)"
+    kv script/stty="$(stty -g)"
     stty -echo
     stty $(stty -g)
     tput civis
@@ -460,7 +459,7 @@ playback_control() {
     exec 4>&-
     log $(rm -v "$input_pipe")
 
-    stty "$(conf get stty)"
+    stty "$(kv get script/stty)"
     echo -e '\033[0;10m'
     tput cnorm
 
@@ -691,13 +690,14 @@ init_codes() {
 }
 
 init_script() {
-    kv script/pid=$$
     kv script/name="$(basename "$0")"
     kv script/dir="$(dirname $(readlink -f "$0"))"
     [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
     kv script/title=bart
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
     kv script/tmpdir=/dev/shm
+    kv script/pid=$$
+    kv script/tty=$(tty)
 
     code p/SUCCESS
 }
@@ -843,8 +843,6 @@ init_config() {
 }
 
 init_misc() {
-    conf tty=$(tty)
-
     local bash_loadables="$(pkg-config bash --variable=loadablesdir &2> /dev/null )"
     [[ -n "$bash_loadables" ]] && kv script/bash_loadables="$bash_loadables"
 
