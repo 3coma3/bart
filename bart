@@ -44,13 +44,12 @@
 #       auto up/downgrade to text/curses/multiplexers, detecting backends
 #
 # - plumbing
+#       verbosity levels, complete logging
 #       use exit and return instead of retcode where it's clearer/better
 #       allow FALSE flags from CLI (-no prefix)
 #       consider adding cond() (custom ternary, from btrfs-backup)
 #       try to have a way to specify / know of logfiles as early as possible, to log
 #       initialization before env (ideally right at the start)
-#       verbosity levels, complete logging
-#       implement kv_meta and move types/arbitrary attrs there (should render a faster/simpler/more powerful kv())
 #
 # - pm
 #       write initial README
