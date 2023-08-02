@@ -348,21 +348,21 @@ new_pipe() {
 
 # PLAYBACK ---------------------------------------------------------------------
 update_throttle() {
-    local tv rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    local tv rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
            R_UP) (( rate += small )) ;;
           R_UP2) (( rate += big ))   ;;
          R_DOWN) (( rate -= small )) ;;
         R_DOWN2) (( rate -= big ))   ;;
     esac
-    (( rate = rate  < 1 ? 1 : rate ))
+    (( rate < 1 )) && rate=1
     conf rate=$rate
 
-    tv="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    tv="$(bc <<< "scale=10; 1 / $rate")"
     kv script/bash_loadables || tv=$(awk '{printf "%.2e\n", $1}' <<< $tv)
     kv "pc/throttle=$tv"
 
-    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $tv)"
+    log "updated rate to $(numfmt --to=iec <<< $rate)B/s, throttle value is $tv)"
 }
 
 playback_control() {
@@ -834,6 +834,8 @@ init_config() {
         log 'done processing CLI'
         log "$(conf print)"
     }
+
+    conf rate=$(conf get rate | numfmt --from=iec)
 
     log 'done processing configuration'
 
