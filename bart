@@ -44,13 +44,12 @@
 #       auto up/downgrade to text/curses/multiplexers, detecting backends
 #
 # - plumbing
+#       verbosity levels, complete logging
 #       use exit and return instead of retcode where it's clearer/better
 #       allow FALSE flags from CLI (-no prefix)
 #       consider adding cond() (custom ternary, from btrfs-backup)
 #       try to have a way to specify / know of logfiles as early as possible, to log
 #       initialization before env (ideally right at the start)
-#       verbosity levels, complete logging
-#       implement kv_meta and move types/arbitrary attrs there (should render a faster/simpler/more powerful kv())
 #
 # - pm
 #       write initial README
@@ -80,7 +79,7 @@
 
 
 # BASICS -----------------------------------------------------------------------
-shopt -s extglob
+shopt -s extglob lastpipe
 
 # "somewhat sane" true and false
 # opposite semantics for return values and arithmetic tests, courtesy of bash
@@ -106,41 +105,23 @@ fqueue() {
 
 
 # VALUE MANAGEMENT -------------------------------------------------------------
-declare -A KV
+declare -A KV KA
+
 print_arr() {
     local -n arr="$1"
-    local v
-    for v in ${!arr[@]}; do
-        echo $v=${arr[$v]}
-    done
-}
+    local k
 
-kv_printns() {
-    local filter
-
-    (( $# )) && {
-        if [[ $1 =~ .*/.*  ]]; then filter="${1%/*}/(__[^_]+__)*${1##*/}[/=]"
-        else filter="(__[^_]+__)*$1[/=]"
-        fi
+    (( $# == 1 )) && {
+        for k in ${!arr[@]}; do
+            echo $k=${arr[$k]}
+        done
+        return
     }
 
-    print_arr KV | sed -rn '\@^'$filter'@p' | sort -u
-}
-
-kv_print() {
-    local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
-    local n t k v
-
-    IFS='|'
-    kv_printns $@ | sed -rn 's/^([^_]+)*__([^_]+)__([^=]+)=(.*)$/\1|\2|\3|\4/p' | while read n t k v; do
-        echo -n "$n$k="
-        case $t in
-             str) echo "\"$v\""     ;;
-             int) echo $v           ;;
-            bool) echo ${TF[$v]}    ;;
-        esac
+    for k in ${!arr[@]}; do
+        [[ $k =~ ^$2 ]] && echo $k=${arr[$k]}
     done
-}
+ }
 
 kv() {
     local cmd=test line ns k v test
@@ -151,7 +132,18 @@ kv() {
     fi
 
     [[ $cmd == print ]] && {
-        kv_print $@
+        local -a TF=( [$TRUE]=TRUE [$FALSE]=FALSE )
+        local nk v
+
+        while read -r line; do
+            nk="${line%=*}" v="${line#*=}"
+            echo -n "$nk="
+            case ${KA[$nk]} in
+                str) echo "\"$v\""      ;;
+                int) echo $v            ;;
+                bool) echo ${TF[$v]}    ;;
+            esac
+        done< <(print_arr KV $@)
         return $?
     }
 
@@ -166,53 +158,46 @@ kv() {
     if [[ $ns =~ .*/.*  ]]; then k="${ns##*/}" ns="${ns%/*}"    # normal ns
     else k="$ns" ns=''                                          # root ns (no slashes)
     fi
-    ns=${ns:+$ns/}
+
+    k=${ns:+$ns/}$k
 
     case $cmd in
         key)
-            v="${line#*=}"
+            v="${line/#$k?(=)}" k="${v:+$k}" v="${v:-$line}"
             while read line; do
-                [[ "$v" == "${line#*=}" ]] && {
-                    echo ${line%%=*} | sed -r 's/(.*\/)__[^_]+__([^\/]+)$/\1\2/'
+                [[ "${line#*=}" == "$v" ]] && {
+                    echo "${line%%=*}"
                     return $TRUE
                 }
-            done< <(kv_printns $ns$k)
-            return $FALSE
-            ;;
+            done< <(print_arr KV "$k")
+            return $FALSE               ;;
 
         set)
-            ${FUNCNAME} del "$ns$k" # needed cause type annotations, other solution: keep types in separate hash
-
             v="${line#*=}"
             case "$v" in
-                TRUE|FALSE) KV[${ns}__bool__${k}]=${!v} ;;
-                ''|*[!0-9]*) KV[${ns}__str__${k}]="$v"  ;;
-                *) KV[${ns}__int__${k}]=$v              ;;
+                 TRUE|FALSE) KV[$k]=${!v} KA[$k]=bool   ;;
+                ''|*[!0-9]*) KV[$k]="$v"  KA[$k]=str    ;;
+                          *) KV[$k]=$v    KA[$k]=int    ;;
             esac
-            return $TRUE
-            ;;
+            return $TRUE                ;;
 
         delns)
             while read line; do
-                test="${line%%=*}"
-                [[ -v KV[$test] ]] && unset KV[$test]
-            done< <(kv_printns $ns$k)
-            return $TRUE
-            ;;
+                k="${line%%=*}"
+                unset KV[$k] KA[$k]
+            done< <(print_arr KV "$k")
+            return $TRUE                ;;
     esac
 
-    for t in bool int str; do
-        test="${ns}__${t}__${k}"
-        [[ -v KV[$test] ]] && {
-            case $cmd in
-                get) echo "${KV[$test]}"                      ;;
-                del) unset KV[$test]                          ;;
-                type) echo $t                                 ;;
-                test) [[ $t == bool ]] && return ${KV[$test]} ;;
-            esac
-            return $TRUE
-        }
-    done
+    [[ -v KV[$k] ]] && {
+        case $cmd in
+            test) [[ ${KA[$k]} == bool ]] && return ${KV[$k]} ;;
+            get) echo "${KV[$k]}"       ;;
+            del) unset KV[$k] KA[$k]    ;;
+            type) echo ${KA[$k]}        ;;
+        esac
+        return $TRUE
+    }
 
     return $FALSE
 }
@@ -319,17 +304,14 @@ noop() {
 
 
 # CONFIG -----------------------------------------------------------------------
-pprint_conf() {
-    echo -n 'config is: ['
-    kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
-}
-
 conf() {
     local cmd
 
     [[ $1 =~ ^(get|del|type|print)$ ]] && cmd=$1 && shift
 
-    if [[ $cmd == print ]]; then pprint_conf
+    if [[ $cmd == print ]]; then
+        echo -n 'config is: ['
+        kv print conf | sed 's/^conf\///' | tr '\n' ',' | sed 's/,$/]/'
     else kv $cmd conf/$@
     fi
 }
@@ -373,7 +355,7 @@ user_input() {
 confirm() {
     conf yes || {
         echo
-        read -r -p "${1:-Are you sure? (y/N)} " response
+        read -rp "${1:-Are you sure? (y/N)} " response
         [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]
     }
 }
@@ -440,21 +422,21 @@ new_pipe() {
 
 # PLAYBACK ---------------------------------------------------------------------
 update_throttle() {
-    local tv rate=$(conf get rate | numfmt --from=iec) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
+    local tv rate=$(conf get rate) big=$(conf get rate_factor_big) small=$(conf get rate_factor_small)
     case $1 in
            R_UP) (( rate += small )) ;;
           R_UP2) (( rate += big ))   ;;
          R_DOWN) (( rate -= small )) ;;
         R_DOWN2) (( rate -= big ))   ;;
     esac
-    (( rate = rate  < 1 ? 1 : rate ))
+    (( rate < 1 )) && rate=1
     conf rate=$rate
 
-    tv="$(bc <<< "scale=10; 1 / $(conf get rate | numfmt --from=iec)")"
+    tv="$(bc <<< "scale=10; 1 / $rate")"
     kv script/bash_loadables || tv=$(awk '{printf "%.2e\n", $1}' <<< $tv)
     kv "pc/throttle=$tv"
 
-    log "updated rate to $(numfmt --from=iec <<< $rate | numfmt --to=iec)B/s, throttle value is $tv)"
+    log "updated rate to $(numfmt --to=iec <<< $rate)B/s, throttle value is $tv)"
 }
 
 playback_control() {
@@ -465,7 +447,7 @@ playback_control() {
 
     trap noop INT
 
-    conf "stty=$(stty -g)"
+    kv script/stty="$(stty -g)"
     stty -echo
     stty $(stty -g)
     tput civis
@@ -541,7 +523,7 @@ playback_control() {
 
     kill $input &>/dev/null
 
-    stty "$(conf get stty)"
+    stty "$(kv get script/stty)"
     echo -e '\033[0;10m'
     tput cnorm
 
@@ -646,23 +628,22 @@ cmd_view() {
             input_controlled pauser
 
         case $(kv get pc/status) in
-                    STOP) break                                 ;;
+                    STOP) break                                             ;;
 
             @(HELP|MENU)) s=$(kv get pc/status)
                           log "here we should we calling ${s,,}()"
-                          sleep 5                               ;&
+                          sleep 5                                           ;&
 
-                  REPLAY) (( cursor-- ))                        ;;          # freeze cursor
+                  REPLAY) (( cursor-- ))                                    ;;  # freeze cursor
 
-                    PREV) (( cursor -= (cursor > 1) ? 2 : 1 ))  ;;          # rewind cursor
+                    PREV) (( cursor -= (cursor > 1) ? 2 : 1 ))              ;;  # rewind cursor
 
-               NEXT|PLAY) case $(conf get loop) in
-                              one) (( cursor-- ))                       ;;  # freeze cursor
-                              all) cursor_to_end || cursor=0            ;;  # reset cursor
-                                *) :                                    ;;
-                          esac                                  ;;
+                    PLAY) [[ $(conf get loop) == one ]] && (( cursor-- ))   ;&  # freeze cursor
 
-                       *) :                                     ;;
+                    NEXT) [[ $(conf get loop) == all ]] &&
+                          { cursor_to_end || cursor=0 ;}                    ;;  # reset cursor
+
+                       *) :                                                 ;;
         esac
 
         kv pc/cursor=$cursor
@@ -824,13 +805,14 @@ init_codes() {
 }
 
 init_script() {
-    kv script/pid=$$
     kv script/name="$(basename "$0")"
     kv script/dir="$(dirname $(readlink -f "$0"))"
     [[ -f "$(kv get script/dir)/VERSION" ]] && kv script/version=$(cat "$(kv get script/dir)/VERSION")
     kv script/title=bart
     kv script/env_prefix=$(kv get script/title | sed -r 's/./\U&/g')
     kv script/tmpdir=/dev/shm
+    kv script/pid=$$
+    kv script/tty=$(tty)
 
     code p/SUCCESS
 }
@@ -982,6 +964,8 @@ init_config() {
         log "$(conf print)"
     }
 
+    conf rate=$(conf get rate | numfmt --from=iec)
+
     log 'done processing configuration'
 
     [[ -z "$(kv get script/command)" ]] && error NOCMD "no command was provided"
@@ -990,8 +974,6 @@ init_config() {
 }
 
 init_misc() {
-    conf tty=$(tty)
-
     local bash_loadables="$(pkg-config bash --variable=loadablesdir &2> /dev/null )"
     [[ -n "$bash_loadables" ]] && kv script/bash_loadables="$bash_loadables"
 
